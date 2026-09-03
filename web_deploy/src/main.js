@@ -59,6 +59,7 @@ const state = {
   cameraCaps: {},
   cameraSettings: {},
   cameraControls: '',
+  lastError: '',
   fps: 0,
   lastFrameAt: 0,
 };
@@ -136,14 +137,20 @@ function allocateBuffers(vw, vh) {
   state.skinValid = false;
   state.lumaCanvas = makeCanvas(32, 32);
 
-  // Three full-resolution snapshots, cycled. The peak detector picks the
+  // Three capture-resolution snapshots, cycled. The peak detector picks the
   // MIDDLE of three samples, so by the time we know which frame won, the
   // camera has moved on ~120ms — the winning pixels have to already be held.
-  state.ring = [0, 1, 2].map(() => makeCanvas(vw, vh));
+  // Capped rather than native: four canvases at the sensor's full 1080p is
+  // memory an iPhone will not reliably give us.
+  const capScale = Math.min(1, CFG.CAPTURE_MAX_LONG_EDGE / Math.max(vw, vh));
+  const cw = Math.max(2, Math.round(vw * capScale));
+  const ch = Math.max(2, Math.round(vh * capScale));
+  state.captureSize = { w: cw, h: ch };
+  state.ring = [0, 1, 2].map(() => makeCanvas(cw, ch));
   state.ringIndex = 0;
 
-  els.view.width = vw;
-  els.view.height = vh;
+  els.view.width = cw;
+  els.view.height = ch;
   state.viewCtx = els.view.getContext('2d');
 }
 
@@ -361,7 +368,10 @@ function loop() {
       `bright  ${light.brightness.toFixed(0)}\n` +
       `skin px ${skinPx.toLocaleString()}\n` +
       `seg     ${state.skinValid ? 'on' : 'OFF'}\n` +
-      `ctrl    ${state.cameraControls || '?'}`;
+      `ctrl    ${state.cameraControls || '?'}\n` +
+      `shot    ${state.captureSize ? state.captureSize.w + 'x' + state.captureSize.h : '?'}` +
+      `  saved ${state.counts.GROUP_1 + state.counts.GROUP_2 + state.counts.GROUP_3}` +
+      (state.lastError ? `\nerr     ${state.lastError}` : '');
   }
 
   const gatesOpen = distance.ok && light.ok && pose.ok && !cooling && !state.capturing;
@@ -443,11 +453,12 @@ async function capture(payload, now) {
     // JPEG, which paints over the very skin pixels a later acne pass needs to
     // measure. The clean frame and the mask stay separate; the overlay is a
     // thumbnail only.
-    const [clean, maskBlob, preview] = await Promise.all([
-      toBlob(frame, 'image/jpeg', CFG.JPEG_QUALITY),
-      toBlob(maskCanvas, 'image/png'),
-      makePreview(frame, mask, w, h, payload.group),
-    ]);
+    // One at a time, not Promise.all: iOS Safari has a long history of
+    // returning null from concurrent toBlob calls on large canvases, and our
+    // toBlob helper turns a null into a thrown capture.
+    const clean = await toBlob(frame, 'image/jpeg', CFG.JPEG_QUALITY);
+    const maskBlob = await toBlob(maskCanvas, 'image/png');
+    const preview = await makePreview(frame, mask, w, h, payload.group);
 
     const rec = {
       group: payload.group,
@@ -475,8 +486,11 @@ async function capture(payload, now) {
     console.log(`[saved] ${store.captureBasename(rec)} ` +
       `(ratio=${rec.ratio.toFixed(2)}, brightness=${rec.brightness.toFixed(0)}, skin_px=${skinPx})`);
   } catch (err) {
+    // Shown on screen, not just logged: reading a phone's console needs a
+    // tethered Mac, and this is the message that explains an empty gallery.
     console.error('[error] capture failed:', err);
-    els.hint.textContent = 'Capture failed — see the console';
+    state.lastError = `${err && err.name ? err.name + ': ' : ''}${err && err.message ? err.message : err}`;
+    els.hint.textContent = `Capture failed — ${state.lastError}`;
   } finally {
     state.capturing = false;
   }

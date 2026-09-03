@@ -28,6 +28,15 @@ export const FACE_SKIN_CLASS = 3;
 export const REQUESTED_WIDTH = 1920;
 export const REQUESTED_HEIGHT = 1080;
 
+// ...but cap what we actually hold and process. iOS Safari is far stricter
+// about canvas memory than a desktop: the capture path keeps three
+// full-resolution snapshots plus the view canvas, and at 1080p that is ~33 MB
+// of backing store before a capture even starts, on top of a mask build over
+// two million pixels. Capping the long edge keeps the ceiling predictable.
+// Landmarks are normalised, so the region mask still rebuilds exactly at
+// whatever size this yields.
+export const CAPTURE_MAX_LONG_EDGE = 1280;
+
 // Live loop runs landmarks + masks on a downscaled copy (long edge, px).
 // On capture we rebuild the mask at full resolution — landmarks are
 // normalised 0..1, so they scale for free.
