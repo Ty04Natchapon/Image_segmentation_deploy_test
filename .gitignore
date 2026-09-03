@@ -1,0 +1,12 @@
+# Python prototype output — captured face images, not for the repo
+Group_1_Right_Cheek/
+Group_2_Left_Cheek/
+Group_3_Front/
+*.tflite
+__pycache__/
+*.pyc
+
+# Web
+node_modules/
+.vercel/
+.netlify/
