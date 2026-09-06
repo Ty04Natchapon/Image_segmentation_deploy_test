@@ -10,3 +10,6 @@ __pycache__/
 node_modules/
 .vercel/
 .netlify/
+
+# Local backup copy of web_deploy — not part of the project
+save/
