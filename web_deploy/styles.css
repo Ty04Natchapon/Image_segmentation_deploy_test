@@ -215,3 +215,18 @@ body.lit .ghost { background: #fff; color: #10151b; border-color: #c8d0d8; }
 .ok-txt   { color: var(--ok); }
 .warn-txt { color: var(--warn); }
 .bad-txt  { color: var(--bad); }
+
+/* Gates: green passed, amber blocking you, grey nothing to report yet.
+   Reserving amber for "you must act" is what makes it worth reacting to. */
+.gates li.idle .dot { background: var(--muted); opacity: .5; }
+.gates li.idle .txt { color: var(--muted); }
+
+/* Region swatch in the progress chips, matching the viewfinder overlay. */
+.chip .swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: baseline;
+}

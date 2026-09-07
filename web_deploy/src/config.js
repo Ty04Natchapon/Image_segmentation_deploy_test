@@ -131,8 +131,17 @@ export const SESSION_ID = (crypto.randomUUID && crypto.randomUUID())
 export const APP_VERSION = '1.0.0';
 
 export const GROUPS = {
-  GROUP_1: { dir: 'Group_1_Right_Cheek', label: 'Right cheek', color: [255, 64, 64] },
-  GROUP_2: { dir: 'Group_2_Left_Cheek',  label: 'Left cheek',  color: [255, 64, 64] },
-  GROUP_3: { dir: 'Group_3_Front',       label: 'Front',       color: [64, 224, 96] },
+  // Region colours are IDENTITY, not status.
+  //
+  // The Python drew cheeks in red and the front in green, which on a phone
+  // viewfinder reads as "cheek shots are wrong, front shots are right" — and
+  // sat directly beside the amber gate dots that genuinely do mean a problem.
+  // Red and green are reserved for status now (failed / passed), and regions
+  // use two hues that carry no verdict. Left and right cheek deliberately
+  // share one: which side of the face the overlay covers already tells you
+  // which it is, so a second colour would only add noise.
+  GROUP_1: { dir: 'Group_1_Right_Cheek', label: 'Right cheek', color: [167, 139, 250] },
+  GROUP_2: { dir: 'Group_2_Left_Cheek',  label: 'Left cheek',  color: [167, 139, 250] },
+  GROUP_3: { dir: 'Group_3_Front',       label: 'Front',       color: [34, 211, 238] },
 };
 export const GROUP_ORDER = ['GROUP_3', 'GROUP_2', 'GROUP_1'];

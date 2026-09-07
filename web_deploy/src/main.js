@@ -257,9 +257,15 @@ function describeCameraError(err) {
 
 // --- UI helpers ------------------------------------------------------------
 
-function setGate(el, ok, text) {
-  el.classList.toggle('ok', ok);
-  el.classList.toggle('bad', !ok);
+/**
+ * Gates have three states, not two. "No face yet" is not the same as "you are
+ * standing too close", and showing both in warning amber trains people to
+ * ignore the colour.
+ */
+function setGate(el, state, text) {
+  el.classList.toggle('ok', state === 'ok');
+  el.classList.toggle('bad', state === 'bad');
+  el.classList.toggle('idle', state === 'idle');
   el.querySelector('.txt').textContent = text;
 }
 
@@ -267,8 +273,11 @@ function renderProgress() {
   els.progress.innerHTML = CFG.GROUP_ORDER.map((g) => {
     const n = state.counts[g];
     const px = state.lastPx[g];
+    // The same colour the overlay uses, so "the violet region" and
+    // "Left cheek" are visibly the same thing.
+    const [r, gg, b] = groupColor(g);
     return `<div class="chip${n ? ' done' : ''}">
-      <div class="name">${groupLabel(g)}</div>
+      <div class="name"><i class="swatch" style="background:rgb(${r},${gg},${b})"></i>${groupLabel(g)}</div>
       <div class="val">${n}</div>
       <div class="px">${px == null ? '—' : `${px.toLocaleString()} px`}</div>
     </div>`;
@@ -310,9 +319,9 @@ function loop() {
     state.tracker.reset();
     state.skinValid = false;
     els.hint.textContent = 'No face detected';
-    setGate(els.gateDistance, false, 'Distance');
-    setGate(els.gateLight, false, 'Lighting');
-    setGate(els.gatePose, false, 'Pose');
+    setGate(els.gateDistance, 'idle', 'Distance');
+    setGate(els.gateLight, 'idle', 'Lighting');
+    setGate(els.gatePose, 'idle', 'Pose');
     if (DEBUG) els.debug.textContent = `fps    ${state.fps.toFixed(0)}\nno face`;
     drawFlash(now);
     return;
@@ -348,9 +357,9 @@ function loop() {
   const pose = checkPose(group, ratio);
   const cooling = now < state.cooldownUntil;
 
-  setGate(els.gateDistance, distance.ok, distance.msg);
-  setGate(els.gateLight, light.ok, light.msg);
-  setGate(els.gatePose, pose.ok, pose.msg);
+  setGate(els.gateDistance, distance.ok ? 'ok' : 'bad', distance.msg);
+  setGate(els.gateLight, light.ok ? 'ok' : 'bad', light.msg);
+  setGate(els.gatePose, pose.ok ? 'ok' : 'bad', pose.msg);
 
   if (!distance.ok) els.hint.textContent = distance.msg;
   else if (!light.ok) els.hint.textContent = light.msg;
