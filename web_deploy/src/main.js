@@ -30,7 +30,7 @@ const els = {
   startOverlay: $('startOverlay'), startBtn: $('startBtn'), startMsg: $('startMsg'),
   flipBtn: $('flipBtn'), galleryBtn: $('galleryBtn'), galleryCount: $('galleryCount'),
   lightBtn: $('lightBtn'), fillLight: $('fillLight'), syncBtn: $('syncBtn'),
-  hold: $('hold'), holdBar: $('holdBar'),
+  hold: $('hold'), holdBar: $('holdBar'), serverLink: $('serverLink'),
   gallery: $('gallery'), galleryGrid: $('galleryGrid'), galleryEmpty: $('galleryEmpty'),
   closeGalleryBtn: $('closeGalleryBtn'), clearBtn: $('clearBtn'), progress: $('progress'),
 };
@@ -574,14 +574,25 @@ async function refreshSyncBadge() {
   els.syncBtn.classList.toggle('pending', n > 0);
 }
 
+/** A corner badge on the thumbnail: readable at a glance across a grid. */
+function uploadBadge(rec) {
+  if (!CFG.UPLOAD_ENDPOINT) return '';
+  if (rec.uploaded) return '<span class="badge sent">Sent</span>';
+  if (rec.uploadAttempts >= CFG.UPLOAD_MAX_ATTEMPTS) {
+    return '<span class="badge failed">Failed</span>';
+  }
+  return '<span class="badge queued">Queued</span>';
+}
+
+/** The detail line under it — why something is queued, when that matters. */
 function uploadStatus(rec) {
   if (!CFG.UPLOAD_ENDPOINT) return '';
-  if (rec.uploaded) return '<span class="ok-txt">Sent to server</span>';
+  if (rec.uploaded) return '<span class="ok-txt">On the server</span>';
   if (rec.uploadAttempts >= CFG.UPLOAD_MAX_ATTEMPTS) {
-    return `<span class="bad-txt">Gave up: ${rec.uploadError || 'upload failed'}</span>`;
+    return `<span class="bad-txt">Gave up after ${rec.uploadAttempts}: ${rec.uploadError || 'upload failed'}</span>`;
   }
   if (rec.uploadError) return `<span class="warn-txt">Retrying: ${rec.uploadError}</span>`;
-  return '<span class="warn-txt">Queued</span>';
+  return '<span class="warn-txt">Waiting to send</span>';
 }
 
 // --- gallery ---------------------------------------------------------------
@@ -601,6 +612,14 @@ async function refreshGalleryCount() {
 
 async function openGallery() {
   const rows = await refreshGalleryCount();
+
+  // A link straight to the server's own view. The gallery can only report what
+  // this device believes it sent; that page shows what actually landed. When
+  // the two disagree, the disagreement is the bug.
+  if (CFG.UPLOAD_ENDPOINT) {
+    els.serverLink.href = new URL('__received', new URL(CFG.UPLOAD_ENDPOINT, location.href)).href;
+    els.serverLink.hidden = false;
+  }
   releaseGalleryUrls();
   els.galleryEmpty.hidden = rows.length > 0;
   els.galleryGrid.innerHTML = '';
@@ -612,7 +631,7 @@ async function openGallery() {
     const card = document.createElement('div');
     card.className = 'card';
     card.innerHTML = `
-      <img src="${url}" alt="${groupLabel(rec.group)} capture">
+      <div class="thumb"><img src="${url}" alt="${groupLabel(rec.group)} capture">${uploadBadge(rec)}</div>
       <div class="meta">
         <b>${groupLabel(rec.group)}</b>
         <span>${rec.skinPx.toLocaleString()} skin px</span>

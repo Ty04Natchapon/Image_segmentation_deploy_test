@@ -366,3 +366,30 @@ Useful while iterating:
   captures are arriving without digging through folders.
 - Responses are sent `Cache-Control: no-store`, so a stale `main.js` never
   survives a refresh.
+
+### Checking what actually reached the server
+
+The app's gallery can only tell you what this device *believes* it sent. The
+server's own view is the other end of the wire:
+
+```
+https://<tunnel>/__received
+```
+
+A grid of everything on the server's disk — the clean image and its mask side
+by side, with region, skin pixel count, dimensions, ratio, brightness, fill
+light, and the capture and session ids. It polls `/__health` and reloads when
+the count changes, so you can leave it open on a laptop while shooting on a
+phone and watch captures land.
+
+In the app, Gallery → **On server** opens the same page, and each thumbnail
+carries a badge:
+
+| Badge | Meaning |
+| --- | --- |
+| **Sent** | the server accepted it |
+| **Queued** | still on the device, waiting to go |
+| **Failed** | gave up after `UPLOAD_MAX_ATTEMPTS`; the detail line says why |
+
+When the gallery says Sent and `/__received` does not show it, that gap is the
+bug — and it is worth knowing which side to look at.
