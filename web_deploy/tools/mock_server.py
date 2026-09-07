@@ -30,11 +30,18 @@ then open the app with the tunnel URL appended:
 """
 
 import argparse
+import functools
 import json
+import mimetypes
 import os
 import re
 from email.parser import BytesParser
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+# Windows registry entries routinely get these wrong, and a .js served as
+# text/plain makes the browser refuse the ES modules with no useful error.
+mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 GROUP_DIRS = {
     "GROUP_1": "Group_1_Right_Cheek",
@@ -77,8 +84,9 @@ def parse_multipart(headers, body):
     return fields
 
 
-class Handler(BaseHTTPRequestHandler):
+class Handler(SimpleHTTPRequestHandler):
     out_dir = "received"
+    serving = False        # also handing out the app itself, not just the API
 
     def _cors(self):
         # The app is served from a different origin (GitHub Pages, or a tunnel),
@@ -103,7 +111,18 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        # With --serve, this one process is both the app and the API. That
+        # means one tunnel instead of two, and no CORS at all, because the page
+        # and the endpoint are then the same origin.
+        if self.serving and self.path != "/__health":
+            return super().do_GET()
         self._json(200, {"status": "ok", "received": len(seen_capture_ids)})
+
+    def end_headers(self):
+        # Never cache during testing; a stale main.js after an edit wastes
+        # more time than the requests it saves.
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length") or 0)
@@ -169,16 +188,28 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--port", type=int, default=8001)
     ap.add_argument("--out", default="received", help="where to write captures")
+    ap.add_argument("--serve", metavar="DIR", default=None,
+                    help="also serve the app from DIR, so one tunnel covers both")
     args = ap.parse_args()
 
     Handler.out_dir = args.out
+    Handler.serving = bool(args.serve)
     os.makedirs(args.out, exist_ok=True)
 
-    print(f"Mock analysis server on http://localhost:{args.port}")
+    handler = Handler
+    if args.serve:
+        handler = functools.partial(Handler, directory=args.serve)
+
+    print(f"Listening on http://localhost:{args.port}")
     print(f"Writing captures to {os.path.abspath(args.out)}")
-    print("Open the app with  ?api=http://localhost:%d  (or a tunnel URL)\n" % args.port)
+    if args.serve:
+        print(f"Serving the app from {os.path.abspath(args.serve)}")
+        print(f"Open  http://localhost:{args.port}/?api=/   (same origin, no CORS)")
+    else:
+        print(f"Open the app with  ?api=http://localhost:{args.port}")
+    print()
     try:
-        ThreadingHTTPServer(("0.0.0.0", args.port), Handler).serve_forever()
+        ThreadingHTTPServer(("0.0.0.0", args.port), handler).serve_forever()
     except KeyboardInterrupt:
         print(f"\nStopped. {len(seen_capture_ids)} capture(s) received.")
 

@@ -6,8 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "npx --yes serve@14 -l 8000 .",
+    "dev:api": "python tools/mock_server.py --serve . --port 8000",
     "tunnel": "npx --yes cloudflared tunnel --url http://localhost:8000",
-    "test": "node --test \"test/*.test.js\"",
-    "tunnel:lt": "npx --yes localtunnel --port 8000"
+    "test": "node --test \"test/*.test.js\""
   }
 }

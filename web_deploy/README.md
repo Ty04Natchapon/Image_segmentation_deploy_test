@@ -337,3 +337,32 @@ team and update the mock server, rather than breaking them silently.
 someone deliberately configures it. Face images leaving a participant's phone
 is the point at which most year-4 projects need consent forms and departmental
 ethics sign-off. Worth settling that before wiring in a live endpoint.
+
+### Testing the whole thing on a phone with one tunnel
+
+`npm run dev` serves the app; `tools/mock_server.py` is the API. Running them
+on separate ports means two tunnels and a CORS round trip, which is a lot of
+moving parts to debug at once. `--serve` collapses them into one process:
+
+```bash
+npm run dev:api     # app AND API on :8000
+npm run tunnel      # one HTTPS URL for both
+```
+
+Then open the printed tunnel URL on the phone with `?api=/` — a relative
+endpoint, so uploads go back to the same origin the page came from:
+
+```
+https://<tunnel>.trycloudflare.com/?debug=1&api=/
+```
+
+Same origin means no CORS involved at all, and nothing needs deploying: this
+serves your working tree, so an edit is live on refresh. Captures land in
+`received/<session_id>/Group_3_Front/` next to the app.
+
+Useful while iterating:
+
+- `GET /__health` returns `{"status": "ok", "received": N}` — a quick check that
+  captures are arriving without digging through folders.
+- Responses are sent `Cache-Control: no-store`, so a stale `main.js` never
+  survives a refresh.
