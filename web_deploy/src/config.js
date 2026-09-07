@@ -101,6 +101,35 @@ export const INTERSECT_SKIN_ALL_REGIONS = true;
 // --- Output ----------------------------------------------------------------
 export const JPEG_QUALITY = 0.95;
 
+// --- Hand-off to the analysis server ---------------------------------------
+// Where captures are POSTed for the downstream algorithm. Null disables
+// uploading entirely and the app stays fully on-device, which is the right
+// default until there is a server to receive them and consent to send them.
+//
+// Override without editing this file by opening the page with ?api=<url> —
+// useful for pointing a test handset at a laptop running tools/mock_server.py.
+// Guarded so this module can also be imported outside a browser — the contract
+// test in test/sync.test.js runs under Node, where `location` does not exist.
+export const UPLOAD_ENDPOINT = new URLSearchParams(
+  typeof location !== 'undefined' ? location.search : '',
+).get('api') || null;
+
+// Upload as soon as a capture is taken. With this off, captures queue locally
+// and go up only when the user taps Sync.
+export const UPLOAD_AUTO = true;
+
+// A phone on mobile data WILL fail mid-upload. Captures are already durable in
+// IndexedDB, so a failure is a retry, never a lost capture.
+export const UPLOAD_MAX_ATTEMPTS = 5;
+export const UPLOAD_TIMEOUT_MS = 30000;
+
+// Sent with every capture so the server can group the three angles taken in
+// one sitting. Regenerated on each page load.
+export const SESSION_ID = (crypto.randomUUID && crypto.randomUUID())
+  || String(Date.now()) + Math.random().toString(16).slice(2);
+
+export const APP_VERSION = '1.0.0';
+
 export const GROUPS = {
   GROUP_1: { dir: 'Group_1_Right_Cheek', label: 'Right cheek', color: [255, 64, 64] },
   GROUP_2: { dir: 'Group_2_Left_Cheek',  label: 'Left cheek',  color: [255, 64, 64] },

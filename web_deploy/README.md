@@ -237,3 +237,103 @@ DNG with the ISP bypassed. That is a different project from a web app, and for
 a ratio-based measure it is almost certainly not worth it. An Android handset is
 the cheaper middle ground: Chrome there exposes `ImageCapture` and several
 `MediaTrackConstraints`, so you can at least pin exposure and white balance.
+
+## Sending captures to the analysis server
+
+This app's responsibility ends at the POST. It guides the shot, segments the
+region, decides the frame is good, and hands the result over; everything after
+that belongs to whoever owns the analysis algorithm.
+
+**Give the receiving team this section.** It is the whole interface.
+
+### The request
+
+One `multipart/form-data` POST per capture, to whatever URL is configured as
+`UPLOAD_ENDPOINT`.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `capture_id` | string | UUID generated on the device. **Stable across retries** — use it to make ingestion idempotent |
+| `session_id` | string | Groups the three angles taken in one sitting |
+| `group` | string | `GROUP_1` / `GROUP_2` / `GROUP_3` |
+| `region` | string | `right_cheek` / `left_cheek` / `front` — the same thing, readable |
+| `captured_at` | string | ISO 8601 UTC |
+| `skin_px` | integer | Pixels inside the region mask |
+| `width`, `height` | integer | Dimensions of **both** files |
+| `ratio` | float | Pose symmetry: 1.0 is head-on |
+| `brightness` | float | Mean luma of the face box, 0–255 |
+| `fill_light` | bool | Whether the screen fill light was on |
+| `camera` | JSON | `MediaTrackSettings` as reported by the device |
+| `app_version` | string | This app's version |
+| `image` | file | **The clean JPEG. Nothing is drawn on it** |
+| `mask` | file | 8-bit PNG, white = region skin |
+
+Two things that are easy to get wrong and matter downstream:
+
+- **`image` has no annotations.** No contour lines, no overlay. The Python
+  prototype baked green/red contours into its saved JPEGs, which painted over
+  the very boundary pixels an analysis pass needs. That was fixed here
+  deliberately — do not reintroduce it.
+- **`mask` is pixel-aligned with `image`,** identical dimensions. Restricting
+  analysis to the region is a straight boolean AND. No resampling, no
+  coordinate transform, no scaling factor to agree on.
+
+### The response
+
+Any 2xx means accepted; the body is ignored. Anything else is treated as a
+failure and retried up to `UPLOAD_MAX_ATTEMPTS` times.
+
+**Please return 2xx for a `capture_id` already stored.** Phones lose signal
+mid-upload, so retries of an already-received capture are normal, not an error.
+
+**CORS is required.** The app is served from a different origin than the API,
+so responses need `Access-Control-Allow-Origin`. Without it every upload looks
+like a network failure to the browser, even when the server stored the file
+perfectly.
+
+### What happens when the network fails
+
+Captures are written to IndexedDB **before** any upload is attempted, so a
+failed hand-off is a retry, never a lost capture. The queue drains oldest
+first, one at a time, and retries after each new capture, when the phone comes
+back online, and when the user taps **Send**. The gallery shows per-capture
+status, and the Send button carries the pending count.
+
+### Testing without the real server
+
+`tools/mock_server.py` implements exactly the contract above — no dependencies,
+standard library only. It stores captures in the same folder layout the Python
+prototype produced, so you can eyeball them:
+
+```bash
+python tools/mock_server.py            # listens on :8001, writes ./received
+```
+
+Point the app at it by adding `?api=` to the URL — no rebuild, no code edit:
+
+```
+http://localhost:8000/?api=http://localhost:8001
+```
+
+From a phone, the API needs its own HTTPS tunnel, because an HTTPS page cannot
+POST to a plain-HTTP address:
+
+```bash
+python tools/mock_server.py                                # terminal 1
+npx --yes cloudflared tunnel --url http://localhost:8001   # terminal 2
+```
+
+```
+https://<your-site>/?api=https://<tunnel>.trycloudflare.com
+```
+
+`test/sync.test.js` locks the field names down. If you change the contract in
+`buildFormData`, those tests fail — that is the reminder to tell the receiving
+team and update the mock server, rather than breaking them silently.
+
+### Before you turn this on for real
+
+`UPLOAD_ENDPOINT` defaults to `null`, so the app stays fully on-device until
+someone deliberately configures it. Face images leaving a participant's phone
+is the point at which most year-4 projects need consent forms and departmental
+ethics sign-off. Worth settling that before wiring in a live endpoint.

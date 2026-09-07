@@ -208,3 +208,10 @@ body.lit .bar h1 { color: #10151b; }
 body.lit .chip { background: #fff; border-color: #c8d0d8; }
 body.lit .chip .val { color: #10151b; }
 body.lit .ghost { background: #fff; color: #10151b; border-color: #c8d0d8; }
+
+/* --- upload state -------------------------------------------------------- */
+
+.ghost.pending { border-color: var(--warn); color: var(--warn); }
+.ok-txt   { color: var(--ok); }
+.warn-txt { color: var(--warn); }
+.bad-txt  { color: var(--bad); }

@@ -21,6 +21,7 @@ import {
 } from './pose.js';
 import { loadVision, detectLandmarks, writeSkinMask } from './vision.js';
 import * as store from './storage.js';
+import * as sync from './sync.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -28,7 +29,7 @@ const els = {
   gateDistance: $('gateDistance'), gateLight: $('gateLight'), gatePose: $('gatePose'),
   startOverlay: $('startOverlay'), startBtn: $('startBtn'), startMsg: $('startMsg'),
   flipBtn: $('flipBtn'), galleryBtn: $('galleryBtn'), galleryCount: $('galleryCount'),
-  lightBtn: $('lightBtn'), fillLight: $('fillLight'),
+  lightBtn: $('lightBtn'), fillLight: $('fillLight'), syncBtn: $('syncBtn'),
   gallery: $('gallery'), galleryGrid: $('galleryGrid'), galleryEmpty: $('galleryEmpty'),
   closeGalleryBtn: $('closeGalleryBtn'), clearBtn: $('clearBtn'), progress: $('progress'),
 };
@@ -461,6 +462,10 @@ async function capture(payload, now) {
     const preview = await makePreview(frame, mask, w, h, payload.group);
 
     const rec = {
+      // Generated here, not by the server, so a retry re-sends the SAME id and
+      // ingestion can be made idempotent on the far side.
+      captureId: (crypto.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random()}`,
+      sessionId: CFG.SESSION_ID,
       group: payload.group,
       ts: Date.now(),
       ratio: payload.ratio,
@@ -475,7 +480,12 @@ async function capture(payload, now) {
       clean,
       mask: maskBlob,
       preview,
+      uploaded: false,
+      uploadAttempts: 0,
+      uploadError: null,
     };
+    // Stored BEFORE any upload is attempted. The capture is safe on the device
+    // from this line onwards, so a failed hand-off is only ever a retry.
     await store.saveCapture(rec);
 
     state.counts[payload.group]++;
@@ -485,6 +495,8 @@ async function capture(payload, now) {
 
     console.log(`[saved] ${store.captureBasename(rec)} ` +
       `(ratio=${rec.ratio.toFixed(2)}, brightness=${rec.brightness.toFixed(0)}, skin_px=${skinPx})`);
+
+    if (CFG.UPLOAD_ENDPOINT && CFG.UPLOAD_AUTO) runSync();
   } catch (err) {
     // Shown on screen, not just logged: reading a phone's console needs a
     // tethered Mac, and this is the message that explains an empty gallery.
@@ -494,6 +506,49 @@ async function capture(payload, now) {
   } finally {
     state.capturing = false;
   }
+}
+
+// --- handing captures to the analysis server -------------------------------
+
+/**
+ * Drain the upload queue and reflect it in the button.
+ *
+ * Fire-and-forget from the capture path: uploading a couple of megabytes over
+ * mobile data takes seconds, and the viewfinder must keep running throughout.
+ */
+async function runSync() {
+  if (!CFG.UPLOAD_ENDPOINT) return;
+  els.syncBtn.disabled = true;
+  try {
+    const result = await sync.syncPending({
+      onProgress: ({ remaining }) => { els.syncBtn.textContent = `Sending ${remaining}…`; },
+    });
+    if (result.failed) {
+      console.warn(`[sync] ${result.sent} sent, ${result.failed} still queued`);
+    }
+  } catch (err) {
+    console.error('[sync] queue failed:', err);
+  } finally {
+    els.syncBtn.disabled = false;
+    await refreshSyncBadge();
+  }
+}
+
+async function refreshSyncBadge() {
+  if (!CFG.UPLOAD_ENDPOINT) return;
+  const n = await sync.pendingCount();
+  els.syncBtn.textContent = n ? `Send ${n}` : 'All sent';
+  els.syncBtn.classList.toggle('pending', n > 0);
+}
+
+function uploadStatus(rec) {
+  if (!CFG.UPLOAD_ENDPOINT) return '';
+  if (rec.uploaded) return '<span class="ok-txt">Sent to server</span>';
+  if (rec.uploadAttempts >= CFG.UPLOAD_MAX_ATTEMPTS) {
+    return `<span class="bad-txt">Gave up: ${rec.uploadError || 'upload failed'}</span>`;
+  }
+  if (rec.uploadError) return `<span class="warn-txt">Retrying: ${rec.uploadError}</span>`;
+  return '<span class="warn-txt">Queued</span>';
 }
 
 // --- gallery ---------------------------------------------------------------
@@ -529,6 +584,7 @@ async function openGallery() {
         <b>${groupLabel(rec.group)}</b>
         <span>${rec.skinPx.toLocaleString()} skin px</span>
         <span>${new Date(rec.ts).toLocaleString()}</span>
+        <span>${uploadStatus(rec)}</span>
       </div>
       <div class="row">
         <button class="ghost" data-act="export">Export</button>
@@ -612,6 +668,7 @@ async function begin() {
     els.progress.hidden = false;
     els.galleryBtn.hidden = false;
     els.lightBtn.hidden = false;
+    els.syncBtn.hidden = !CFG.UPLOAD_ENDPOINT;
     els.debug.hidden = !DEBUG;
     await showFlipIfMultipleCameras();
 
@@ -632,6 +689,7 @@ els.lightBtn.addEventListener('click', () => {
   els.lightBtn.textContent = on ? 'Light off' : 'Fill light';
 });
 
+els.syncBtn.addEventListener('click', runSync);
 els.galleryBtn.addEventListener('click', openGallery);
 els.closeGalleryBtn.addEventListener('click', closeGallery);
 
@@ -677,4 +735,8 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('pagehide', stopStream);
 
 renderProgress();
+// Retry the queue whenever the phone regains signal — a capture taken in a
+// basement should still reach the server on the walk out.
+sync.watchConnectivity(() => refreshGalleryCount());
+refreshSyncBadge().catch(() => {});
 restoreCounts().catch((err) => console.error('[error] could not read past captures:', err));

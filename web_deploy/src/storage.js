@@ -118,25 +118,33 @@ export async function exportCapture(rec) {
   return 'downloaded';
 }
 
-/**
- * Optional: POST a capture to your own backend. Nothing calls this by
- * default — wire it up only once you have consent and somewhere to put the
- * data. See README "Sending captures to a server".
- */
-export async function uploadCapture(rec, endpoint) {
-  const base = captureBasename(rec);
-  const body = new FormData();
-  body.append('group', rec.group);
-  body.append('timestamp', String(rec.ts));
-  body.append('skin_px', String(rec.skinPx));
-  body.append('ratio', rec.ratio.toFixed(4));
-  body.append('brightness', rec.brightness.toFixed(1));
-  body.append('width', String(rec.width));
-  body.append('height', String(rec.height));
-  body.append('image', rec.clean, `${base}.jpg`);
-  body.append('mask', rec.mask, `${base}_mask.png`);
+// --- upload bookkeeping ----------------------------------------------------
+// The network half lives in sync.js; this is just the durable record of what
+// has and has not made it to the server. Keeping the two apart is what lets a
+// failed upload be a retry rather than a lost capture: the image is already
+// safely on disk before anyone tries to send it.
 
-  const res = await fetch(endpoint, { method: 'POST', body });
-  if (!res.ok) throw new Error(`Upload failed: ${res.status} ${res.statusText}`);
-  return res;
+/** Captures not yet accepted by the server, oldest first (upload in order). */
+export function listPending() {
+  return tx('readonly', (store) => wrap(store.getAll()))
+    .then((rows) => rows.filter((r) => !r.uploaded).sort((a, b) => a.ts - b.ts));
+}
+
+function patch(id, fields) {
+  return tx('readwrite', (store) => {
+    const req = store.get(id);
+    req.onsuccess = () => {
+      const rec = req.result;
+      if (rec) store.put({ ...rec, ...fields });
+    };
+    return null;
+  });
+}
+
+export function markUploaded(id) {
+  return patch(id, { uploaded: true, uploadError: null, uploadedAt: Date.now() });
+}
+
+export function markUploadFailed(id, attempts, message) {
+  return patch(id, { uploaded: false, uploadAttempts: attempts, uploadError: message });
 }
