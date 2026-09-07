@@ -130,18 +130,19 @@ export const SESSION_ID = (crypto.randomUUID && crypto.randomUUID())
 
 export const APP_VERSION = '1.0.0';
 
+// The region outline IS the verdict.
+//
+// The Python coloured the outline by which group it was — red for cheeks,
+// green for the front — which told the user something they could already see
+// and nothing about whether the shot was any good. Here the outline answers
+// the only question the person holding the phone actually has: am I in
+// position yet? Red means not yet, green means hold still.
+export const OVERLAY_WAIT = [255, 82, 82];    // adjust your position
+export const OVERLAY_READY = [54, 226, 128];  // hold it right there
+
 export const GROUPS = {
-  // Region colours are IDENTITY, not status.
-  //
-  // The Python drew cheeks in red and the front in green, which on a phone
-  // viewfinder reads as "cheek shots are wrong, front shots are right" — and
-  // sat directly beside the amber gate dots that genuinely do mean a problem.
-  // Red and green are reserved for status now (failed / passed), and regions
-  // use two hues that carry no verdict. Left and right cheek deliberately
-  // share one: which side of the face the overlay covers already tells you
-  // which it is, so a second colour would only add noise.
-  GROUP_1: { dir: 'Group_1_Right_Cheek', label: 'Right cheek', color: [167, 139, 250] },
-  GROUP_2: { dir: 'Group_2_Left_Cheek',  label: 'Left cheek',  color: [167, 139, 250] },
-  GROUP_3: { dir: 'Group_3_Front',       label: 'Front',       color: [34, 211, 238] },
+  GROUP_1: { dir: 'Group_1_Right_Cheek', label: 'Right cheek' },
+  GROUP_2: { dir: 'Group_2_Left_Cheek',  label: 'Left cheek' },
+  GROUP_3: { dir: 'Group_3_Front',       label: 'Front' },
 };
 export const GROUP_ORDER = ['GROUP_3', 'GROUP_2', 'GROUP_1'];

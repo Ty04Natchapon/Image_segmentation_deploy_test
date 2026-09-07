@@ -17,7 +17,7 @@ import * as R from './regions.js';
 import * as M from './mask.js';
 import {
   symmetryRatio, classifyRatio, checkDistance, checkLighting, checkPose,
-  nextTargetHint, PeakTracker, groupLabel, groupColor,
+  nextTargetHint, PeakTracker, groupLabel,
 } from './pose.js';
 import { loadVision, detectLandmarks, writeSkinMask } from './vision.js';
 import * as store from './storage.js';
@@ -30,6 +30,7 @@ const els = {
   startOverlay: $('startOverlay'), startBtn: $('startBtn'), startMsg: $('startMsg'),
   flipBtn: $('flipBtn'), galleryBtn: $('galleryBtn'), galleryCount: $('galleryCount'),
   lightBtn: $('lightBtn'), fillLight: $('fillLight'), syncBtn: $('syncBtn'),
+  hold: $('hold'), holdBar: $('holdBar'),
   gallery: $('gallery'), galleryGrid: $('galleryGrid'), galleryEmpty: $('galleryEmpty'),
   closeGalleryBtn: $('closeGalleryBtn'), clearBtn: $('clearBtn'), progress: $('progress'),
 };
@@ -273,11 +274,8 @@ function renderProgress() {
   els.progress.innerHTML = CFG.GROUP_ORDER.map((g) => {
     const n = state.counts[g];
     const px = state.lastPx[g];
-    // The same colour the overlay uses, so "the violet region" and
-    // "Left cheek" are visibly the same thing.
-    const [r, gg, b] = groupColor(g);
     return `<div class="chip${n ? ' done' : ''}">
-      <div class="name"><i class="swatch" style="background:rgb(${r},${gg},${b})"></i>${groupLabel(g)}</div>
+      <div class="name">${groupLabel(g)}</div>
       <div class="val">${n}</div>
       <div class="px">${px == null ? '—' : `${px.toLocaleString()} px`}</div>
     </div>`;
@@ -322,6 +320,8 @@ function loop() {
     setGate(els.gateDistance, 'idle', 'Distance');
     setGate(els.gateLight, 'idle', 'Lighting');
     setGate(els.gatePose, 'idle', 'Pose');
+    els.hold.hidden = true;
+    els.hint.classList.remove('ready');
     if (DEBUG) els.debug.textContent = `fps    ${state.fps.toFixed(0)}\nno face`;
     drawFlash(now);
     return;
@@ -346,10 +346,8 @@ function loop() {
   const mask = R.buildRegionMask(landmarks, pw, ph, group, skin);
   const skinPx = R.countSkinPixels(mask);
 
-  state.overlay.ctx.putImageData(
-    M.maskToImageData(mask, pw, ph, groupColor(group), state.overlay.image), 0, 0);
-  viewCtx.drawImage(state.overlay.canvas, 0, 0, els.view.width, els.view.height);
-
+  // Gates BEFORE the overlay is drawn, because the outline's colour is the
+  // verdict and it cannot be coloured before the verdict exists.
   const bounds = R.faceBounds(landmarks, pw, ph);
   const lightBox = R.padBounds(bounds, pw, ph, CFG.BBOX_PADDING);
   const distance = checkDistance(bounds, pw, ph);
@@ -357,16 +355,40 @@ function loop() {
   const pose = checkPose(group, ratio);
   const cooling = now < state.cooldownUntil;
 
+  // Deliberately excludes the cooldown: your position is still good in the
+  // three seconds after a shot, and flashing the outline back to red would
+  // read as "you did something wrong" when you did not.
+  const positionOk = distance.ok && light.ok && pose.ok;
+
+  state.overlay.ctx.putImageData(
+    M.maskToImageData(mask, pw, ph,
+      positionOk ? CFG.OVERLAY_READY : CFG.OVERLAY_WAIT, state.overlay.image), 0, 0);
+  viewCtx.drawImage(state.overlay.canvas, 0, 0, els.view.width, els.view.height);
+
   setGate(els.gateDistance, distance.ok ? 'ok' : 'bad', distance.msg);
   setGate(els.gateLight, light.ok ? 'ok' : 'bad', light.msg);
   setGate(els.gatePose, pose.ok ? 'ok' : 'bad', pose.msg);
 
-  if (!distance.ok) els.hint.textContent = distance.msg;
-  else if (!light.ok) els.hint.textContent = light.msg;
-  else if (!pose.ok) els.hint.textContent = pose.msg;
-  else if (cooling) els.hint.textContent = 'Hold on…';
-  else if (state.counts[group]) els.hint.textContent = nextTargetHint(state.counts);
-  else els.hint.textContent = pose.msg;
+  // One instruction at a time, in the order the user can act on them: get
+  // close enough, get lit, then get the angle. Stacking all three corrections
+  // at once just means none of them gets read.
+  let hint;
+  if (!distance.ok) hint = distance.msg;
+  else if (!light.ok) hint = light.msg;
+  else if (!pose.ok) hint = pose.msg;
+  // "What next" belongs in the cooldown, not while you are being asked to hold
+  // — telling someone to turn their head under a green outline and a filling
+  // progress bar is two contradictory instructions at once.
+  else if (cooling) hint = nextTargetHint(state.counts);
+  else hint = 'Hold still';
+  els.hint.textContent = hint;
+  els.hint.classList.toggle('ready', positionOk);
+
+  // A filling bar while the shot is being taken. Without it "hold still" asks
+  // the user to freeze for an unknown length of time, which nobody does well.
+  const held = state.tracker.samples.length;
+  els.hold.hidden = !(positionOk && !cooling);
+  els.holdBar.style.width = `${Math.min(100, (held / CFG.PEAK_WINDOW) * 100)}%`;
 
   if (DEBUG) {
     els.debug.textContent =
@@ -422,7 +444,9 @@ async function makePreview(frame, mask, w, h, group) {
   const pw = Math.round(w * scale);
   const ph = Math.round(h * scale);
   const overlay = makeCanvas(w, h);
-  overlay.getContext('2d').putImageData(M.maskToImageData(mask, w, h, groupColor(group)), 0, 0);
+  // A saved capture passed every gate by definition, so its overlay is green.
+  overlay.getContext('2d').putImageData(
+    M.maskToImageData(mask, w, h, CFG.OVERLAY_READY), 0, 0);
 
   const out = makeCanvas(pw, ph);
   const ctx = out.getContext('2d');

@@ -221,12 +221,31 @@ body.lit .ghost { background: #fff; color: #10151b; border-color: #c8d0d8; }
 .gates li.idle .dot { background: var(--muted); opacity: .5; }
 .gates li.idle .txt { color: var(--muted); }
 
-/* Region swatch in the progress chips, matching the viewfinder overlay. */
-.chip .swatch {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-right: 5px;
-  border-radius: 2px;
-  vertical-align: baseline;
+
+/* --- hold-still feedback -------------------------------------------------
+   The outline around the region is the verdict: red while something needs
+   fixing, green once every gate passes. These two rules reinforce it in the
+   text, and give the hold a visible end — "hold still" for an unknown length
+   of time is an instruction nobody follows well. */
+
+.hint.ready {
+  color: var(--ok);
+  background: rgba(10, 30, 18, .78);
+  box-shadow: inset 0 0 0 1px rgba(61, 220, 132, .45);
 }
+
+.hold {
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 4px;
+  z-index: 3;
+  background: rgba(255, 255, 255, .14);
+}
+.hold-bar {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--ok);
+  transition: width .12s linear;
+}
+@media (prefers-reduced-motion: reduce) { .hold-bar { transition: none; } }

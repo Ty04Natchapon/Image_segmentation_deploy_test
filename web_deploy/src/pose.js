@@ -163,5 +163,4 @@ export class PeakTracker {
 }
 
 export const groupLabel = (g) => GROUPS[g].label;
-export const groupColor = (g) => GROUPS[g].color;
 export const groupDir = (g) => GROUPS[g].dir;
