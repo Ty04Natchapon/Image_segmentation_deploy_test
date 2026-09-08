@@ -293,6 +293,22 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length") or 0)
+
+        # A phone has no console you can read without a tethered Mac, so the
+        # app forwards its errors here and they come out in this terminal.
+        if self.path.split("?")[0] == "/__log":
+            raw = self.rfile.read(length) if length else b"{}"
+            try:
+                entry = json.loads(raw.decode("utf-8", "replace"))
+            except ValueError:
+                entry = {"message": raw.decode("utf-8", "replace")}
+            stamp = datetime.now().strftime("%H:%M:%S")
+            print(f"[{stamp}] PHONE {entry.get('level', 'log')}: {entry.get('message', '')}",
+                  flush=True)
+            for line in str(entry.get("detail") or "").splitlines():
+                print(f"           {line}", flush=True)
+            return self._json(200, {"status": "logged"})
+
         if not length:
             return self._json(400, {"error": "empty body"})
 

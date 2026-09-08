@@ -22,6 +22,7 @@ import {
 import { loadVision, detectLandmarks, writeSkinMask } from './vision.js';
 import * as store from './storage.js';
 import * as sync from './sync.js';
+import { remoteLog, installRemoteLogging } from './remotelog.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -444,8 +445,9 @@ function drawFlash(now) {
  * long enough to be technically displayed and far too short to be read. This
  * banner stays up until the next successful capture, or until it is tapped.
  */
-function showError(message) {
+function showError(message, detail = '') {
   state.lastError = message;
+  remoteLog(message, detail);
   els.errbar.textContent = `Capture failed — ${message}  (tap to dismiss)`;
   els.errbar.hidden = false;
 }
@@ -564,7 +566,10 @@ async function capture(payload, now) {
     // Into its own banner, NOT the hint: the frame loop rewrites the hint
     // about thirty times a second, so an error put there is gone before
     // anyone can read it — which is exactly how this stayed invisible.
-    showError(`${err && err.name ? err.name + ': ' : ''}${(err && err.message) || err}`);
+    showError(
+      `${err && err.name ? err.name + ': ' : ''}${(err && err.message) || err}`,
+      (err && err.stack) || '',
+    );
   } finally {
     state.capturing = false;
   }
@@ -815,6 +820,10 @@ document.addEventListener('visibilitychange', () => {
 });
 
 window.addEventListener('pagehide', stopStream);
+
+// With an endpoint configured, the phone's errors print in the dev server's
+// terminal — otherwise a handset-only bug leaves no readable trace at all.
+installRemoteLogging();
 
 renderProgress();
 // Retry the queue whenever the phone regains signal — a capture taken in a

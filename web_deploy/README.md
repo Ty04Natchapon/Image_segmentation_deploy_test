@@ -393,3 +393,17 @@ carries a badge:
 
 When the gallery says Sent and `/__received` does not show it, that gap is the
 bug — and it is worth knowing which side to look at.
+
+### Reading the phone's console from your laptop
+
+An iPhone has no readable console without a tethered Mac, which makes any bug
+that only reproduces on the handset hard to chase. With an endpoint configured,
+`src/remotelog.js` forwards errors — including uncaught throws and unhandled
+promise rejections — to `POST /__log`, and the dev server prints them:
+
+```
+[16:34:10] PHONE error: QuotaExceededError: storage full
+           at capture (main.js:479)
+```
+
+Diagnostics only: it is inert without an endpoint, and never sends image data.
