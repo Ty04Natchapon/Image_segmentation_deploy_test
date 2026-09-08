@@ -259,6 +259,7 @@ One `multipart/form-data` POST per capture, to whatever URL is configured as
 | `region` | string | `right_cheek` / `left_cheek` / `front` — the same thing, readable |
 | `captured_at` | string | ISO 8601 UTC |
 | `skin_px` | integer | Pixels inside the region mask |
+| `face_px` | integer | Face width in pixels. **Divide by 140 for px/mm** — the resolution filter |
 | `width`, `height` | integer | Dimensions of **both** files |
 | `ratio` | float | Pose symmetry: 1.0 is head-on |
 | `brightness` | float | Mean luma of the face box, 0–255 |
@@ -490,3 +491,59 @@ The one non-obvious requirement: **return 2xx for a `capture_id` you already
 hold.** Phones lose signal mid-upload, so retries of an already-received
 capture are routine. Answering with an error makes the client retry until it
 gives up, and the capture never leaves the device.
+
+## Is the resolution enough to train on?
+
+File size is the wrong question — it is an output, not an input. What decides
+whether a lesion is learnable is **pixels per millimetre of skin**, and that
+depends on the capture resolution and how much of the frame the face fills.
+
+Open with `?debug=1` and read it live:
+
+```
+face    0.412 of short edge  3.0 px/mm
+```
+
+An adult face is about 140 mm wide, so px/mm is just `face_px / 140`. What the
+current settings produce, on a 1080p sensor capped to a 1280 long edge:
+
+| Face fills | face px | px/mm | a 3 mm papule spans |
+| --- | --- | --- | --- |
+| 0.20 (minimum gate) | 144 | 1.0 | **3 px** |
+| 0.40 (typical) | 288 | 2.1 | 6 px |
+| 0.58 (maximum gate) | 418 | 3.0 | 9 px |
+
+**The bottom row of that table is the problem.** At the minimum the distance
+gate currently allows, a papule is three pixels across — no model learns from
+that, and no JPEG quality setting recovers it. The gate is inherited from the
+Python, where it controlled framing, not data quality; it was never chosen with
+a training set in mind.
+
+Two levers, in order of effect:
+
+1. **Raise `FACE_WIDTH_MIN_FRAC`** so under-resolved captures are refused
+   rather than collected. Asking for 3 px/mm means a face filling about 0.40 of
+   the short edge; the user simply holds the phone closer.
+2. **Raise `CAPTURE_MAX_LONG_EDGE`** toward 1920. It was capped at 1280 to work
+   around iOS canvas memory during a bug that has since been fixed, so this is
+   worth re-testing on the target handset. At 1920 the same 0.40 framing gives
+   3.1 px/mm and a 3 mm lesion spans 9 px.
+
+`face_px` rides along with every capture, so the analysis side can filter on it
+rather than discovering the problem after training.
+
+### Two things that cost resolution invisibly
+
+- **Noise reduction.** The phone ISP smooths fine luminance detail hardest in
+  low light, which is exactly the signal a texture-based detector needs. Light
+  the subject; see "Image quality" above.
+- **JPEG chroma subsampling.** Browser JPEG encoders typically store colour at
+  half resolution (4:2:0). If the acne pass keys on redness — which is the right
+  choice, since chroma survives noise reduction better than texture — that
+  halves the effective resolution of the signal it depends on. If it matters,
+  encode the uploaded copy as PNG and accept the larger files; this is a
+  research dataset, not a consumer app.
+
+The definitive test is empirical and takes a minute: capture one image, open it
+at 100%, and see whether *you* can pick out the lesions. If a person cannot, a
+model will not.

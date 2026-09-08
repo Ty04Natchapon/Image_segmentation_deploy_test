@@ -52,6 +52,9 @@ export function buildFormData(rec) {
   // Measurements taken at capture time.
   body.append('captured_at', new Date(rec.ts).toISOString());
   body.append('skin_px', String(rec.skinPx));
+  // Face width in pixels. Divide by 140 for px/mm — the figure that decides
+  // whether a lesion is resolvable, and the cheapest quality filter you have.
+  body.append('face_px', String(rec.facePx || 0));
   body.append('width', String(rec.width));
   body.append('height', String(rec.height));
   body.append('ratio', rec.ratio.toFixed(4));

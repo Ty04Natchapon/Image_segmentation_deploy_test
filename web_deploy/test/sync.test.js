@@ -22,6 +22,7 @@ function makeRecord(overrides = {}) {
     ratio: 1.00213,
     brightness: 142.34,
     skinPx: 128437,
+    facePx: 430,
     width: 1280,
     height: 720,
     camera: { width: 1280, height: 720, frameRate: 30 },
@@ -36,7 +37,7 @@ test('the payload carries every field the analysis server is promised', () => {
   const fd = buildFormData(makeRecord());
   const expected = [
     'capture_id', 'session_id', 'group', 'region', 'captured_at',
-    'skin_px', 'width', 'height', 'ratio', 'brightness',
+    'skin_px', 'face_px', 'width', 'height', 'ratio', 'brightness',
     'fill_light', 'camera', 'app_version', 'image', 'mask',
   ];
   for (const field of expected) {
@@ -96,5 +97,8 @@ test('numeric fields are strings with fixed precision, not floats', () => {
   assert.equal(fd.get('ratio'), '1.0021');
   assert.equal(fd.get('brightness'), '142.3');
   assert.equal(fd.get('skin_px'), '128437');
+  // Face width in pixels: divided by 140 it gives px/mm, the cheapest filter
+  // the analysis side has for rejecting captures too coarse to learn from.
+  assert.equal(fd.get('face_px'), '430');
   assert.equal(fd.get('fill_light'), 'false');
 });

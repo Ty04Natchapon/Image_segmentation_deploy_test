@@ -98,6 +98,12 @@ export function scaleRadius(px, w, h) {
 // all three counts mean the same thing and the acne ratio stays comparable.
 export const INTERSECT_SKIN_ALL_REGIONS = true;
 
+// Average adult face width (bizygomatic), used only to turn the measured face
+// width in pixels into a px/mm figure. That figure is the one that decides
+// whether a lesion is resolvable at all: a 3mm papule at 1 px/mm is three
+// pixels across, which no model can learn from however large the JPEG is.
+export const FACE_WIDTH_MM = 140;
+
 // --- Output ----------------------------------------------------------------
 export const JPEG_QUALITY = 0.95;
 

@@ -370,6 +370,10 @@ function loop() {
       positionOk ? CFG.OVERLAY_READY : CFG.OVERLAY_WAIT, state.overlay.image), 0, 0);
   viewCtx.drawImage(state.overlay.canvas, 0, 0, els.view.width, els.view.height);
 
+  // Face width expressed in CAPTURE pixels, not working-frame pixels: it is
+  // the saved image whose resolution has to be good enough to learn from.
+  const faceCapturePx = bounds.width * (state.captureSize.w / pw);
+
   setGate(els.gateDistance, distance.ok ? 'ok' : 'bad', distance.msg);
   setGate(els.gateLight, light.ok ? 'ok' : 'bad', light.msg);
   setGate(els.gatePose, pose.ok ? 'ok' : 'bad', pose.msg);
@@ -401,7 +405,7 @@ function loop() {
       `cam     ${state.cameraSettings.width || '?'}x${state.cameraSettings.height || '?'}\n` +
       `proc    ${pw}x${ph}\n` +
       `ratio   ${ratio.toFixed(3)}  ${group}\n` +
-      `face    ${distance.frac.toFixed(3)} of short edge\n` +
+      `face    ${distance.frac.toFixed(3)} of short edge  ${(faceCapturePx / CFG.FACE_WIDTH_MM).toFixed(1)} px/mm\n` +
       `bright  ${light.brightness.toFixed(0)}\n` +
       `skin px ${skinPx.toLocaleString()}\n` +
       `seg     ${state.skinValid ? 'on' : 'OFF'}\n` +
@@ -428,6 +432,7 @@ function loop() {
       group,
       ratio,
       brightness: light.brightness,
+      faceCapturePx,
       landmarks: landmarks.map((p) => ({ x: p.x, y: p.y })),
     });
     if (winner) capture(winner, now);
@@ -539,6 +544,9 @@ async function capture(payload, now) {
       ratio: payload.ratio,
       brightness: payload.brightness,
       skinPx,
+      // Lets the analysis side reject under-resolved captures without having
+      // to re-run landmarks to find out how big the face was.
+      facePx: Math.round(payload.faceCapturePx || 0),
       width: w,
       height: h,
       // What the camera was doing when this was taken. There is no raw path on
