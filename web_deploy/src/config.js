@@ -108,11 +108,75 @@ export const JPEG_QUALITY = 0.95;
 //
 // Override without editing this file by opening the page with ?api=<url> —
 // useful for pointing a test handset at a laptop running tools/mock_server.py.
-// Guarded so this module can also be imported outside a browser — the contract
-// test in test/sync.test.js runs under Node, where `location` does not exist.
-export const UPLOAD_ENDPOINT = new URLSearchParams(
-  typeof location !== 'undefined' ? location.search : '',
-).get('api') || null;
+// Resolved at boot by detectUploadEndpoint(), below. Deliberately `let`: ES
+// module bindings are live, so every importer sees the value the moment it is
+// decided, without anyone having to thread it through.
+export let UPLOAD_ENDPOINT = null;
+
+const ENDPOINT_KEY = 'skin-capture.endpoint';
+
+/**
+ * Work out where captures should go, without making the user type anything.
+ *
+ * Blanket-defaulting to the page's own origin would be wrong: on GitHub Pages
+ * nothing is listening, so every capture would sit there failing for no
+ * reason. Instead the app asks its own origin whether it accepts captures —
+ * the dev server answers, a static host 404s — so uploading turns itself on
+ * exactly where it can work.
+ *
+ *   ?api=<url>  use that endpoint, and remember it
+ *   ?api=off    turn uploading off and forget it
+ *   (nothing)   remembered value, else probe this origin
+ */
+export async function detectUploadEndpoint() {
+  const param = new URLSearchParams(
+    typeof location !== 'undefined' ? location.search : '',
+  ).get('api');
+
+  const remember = (value) => {
+    try {
+      if (value) localStorage.setItem(ENDPOINT_KEY, value);
+      else localStorage.removeItem(ENDPOINT_KEY);
+    } catch {
+      // Private browsing. The value still applies to this page view.
+    }
+  };
+
+  if (param === 'off') {
+    remember(null);
+    UPLOAD_ENDPOINT = null;
+    return null;
+  }
+  if (param) {
+    remember(param);
+    UPLOAD_ENDPOINT = param;
+    return param;
+  }
+
+  // Survives a home-screen launch, where the manifest start_url drops the
+  // query string and an explicitly configured endpoint would otherwise vanish.
+  try {
+    const saved = localStorage.getItem(ENDPOINT_KEY);
+    if (saved) {
+      UPLOAD_ENDPOINT = saved;
+      return saved;
+    }
+  } catch { /* storage unavailable; fall through to the probe */ }
+
+  try {
+    const res = await fetch('__health', { cache: 'no-store' });
+    if (res.ok) {
+      const body = await res.json();
+      if (body && body.status === 'ok' && 'received' in body) {
+        UPLOAD_ENDPOINT = '/';
+        return '/';
+      }
+    }
+  } catch { /* no server on this origin, which is a normal answer */ }
+
+  UPLOAD_ENDPOINT = null;
+  return null;
+}
 
 // Upload as soon as a capture is taken. With this off, captures queue locally
 // and go up only when the user taps Sync.

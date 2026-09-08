@@ -763,6 +763,7 @@ async function begin() {
 
     els.startMsg.textContent = 'Loading models…';
     state.vision = await visionPromise;
+    await ready;      // so the Send button reflects a settled endpoint
 
     els.startOverlay.hidden = true;
     els.gates.hidden = false;
@@ -836,15 +837,21 @@ document.addEventListener('visibilitychange', () => {
 
 window.addEventListener('pagehide', stopStream);
 
-// With an endpoint configured, the phone's errors print in the dev server's
-// terminal — otherwise a handset-only bug leaves no readable trace at all.
-installRemoteLogging();
+// Ask this origin whether it accepts captures before anything reads the
+// endpoint. The Send button, the badges and the error relay all depend on the
+// answer, so it is settled first rather than raced against.
+const ready = CFG.detectUploadEndpoint().then((endpoint) => {
+  console.log(`[upload] endpoint: ${endpoint || 'none (local only)'}`);
+  // With an endpoint configured, the phone's errors print in the dev server's
+  // terminal — otherwise a handset-only bug leaves no readable trace at all.
+  installRemoteLogging();
+  // Retry the queue whenever the phone regains signal — a capture taken in a
+  // basement should still reach the server on the walk out.
+  sync.watchConnectivity(() => refreshGalleryCount());
+  return refreshSyncBadge().catch(() => {});
+});
 
 renderProgress();
-// Retry the queue whenever the phone regains signal — a capture taken in a
-// basement should still reach the server on the walk out.
-sync.watchConnectivity(() => refreshGalleryCount());
-refreshSyncBadge().catch(() => {});
 // If IndexedDB is unavailable — a private tab on iOS is the usual reason —
 // every capture would appear to succeed and silently vanish. Better to say so
 // on load than to let someone shoot a whole session into nothing.

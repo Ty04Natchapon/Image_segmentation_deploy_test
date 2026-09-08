@@ -309,7 +309,15 @@ prototype produced, so you can eyeball them:
 python tools/mock_server.py            # listens on :8001, writes ./received
 ```
 
-Point the app at it by adding `?api=` to the URL — no rebuild, no code edit:
+**You do not normally need to configure anything.** At boot the app asks its
+own origin whether it accepts captures, by fetching `/__health`. The dev server
+answers, so uploading turns itself on; a static host like GitHub Pages returns
+404, so it stays off rather than failing every capture against a server that
+was never there.
+
+To override — a real API on another host, say — add `?api=` to the URL. It is
+remembered for that origin, so it survives a home-screen launch where the
+manifest drops the query string. `?api=off` turns uploading off and forgets it.
 
 ```
 http://localhost:8000/?api=http://localhost:8001
