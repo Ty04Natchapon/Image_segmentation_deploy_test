@@ -405,6 +405,8 @@ function loop() {
       `bright  ${light.brightness.toFixed(0)}\n` +
       `skin px ${skinPx.toLocaleString()}\n` +
       `seg     ${state.skinValid ? 'on' : 'OFF'}\n` +
+      `api     ${CFG.UPLOAD_ENDPOINT || 'NOT SET — add ?api=/ to the URL'}
+` +
       `ctrl    ${state.cameraControls || '?'}\n` +
       `shot    ${state.captureSize ? state.captureSize.w + 'x' + state.captureSize.h : '?'}` +
       `  try ${state.tries} ok ${state.saved} err ${state.failed}` +
@@ -659,6 +661,10 @@ async function openGallery() {
   // A link straight to the server's own view. The gallery can only report what
   // this device believes it sent; that page shows what actually landed. When
   // the two disagree, the disagreement is the bug.
+  els.galleryEmpty.textContent = CFG.UPLOAD_ENDPOINT
+    ? 'No captures yet.'
+    : 'No captures yet. Uploading is off — add ?api=/ to the URL to send them to a server.';
+
   if (CFG.UPLOAD_ENDPOINT) {
     els.serverLink.href = new URL('__received', new URL(CFG.UPLOAD_ENDPOINT, location.href)).href;
     els.serverLink.hidden = false;
