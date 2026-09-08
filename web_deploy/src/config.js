@@ -102,16 +102,31 @@ export const INTERSECT_SKIN_ALL_REGIONS = true;
 export const JPEG_QUALITY = 0.95;
 
 // --- Hand-off to the analysis server ---------------------------------------
-// Where captures are POSTed for the downstream algorithm. Null disables
-// uploading entirely and the app stays fully on-device, which is the right
-// default until there is a server to receive them and consent to send them.
+// Where captures are POSTed for the downstream algorithm. Null means the app
+// stays fully on-device, which is the right state until there is a server to
+// receive them and consent to send them.
 //
-// Override without editing this file by opening the page with ?api=<url> —
-// useful for pointing a test handset at a laptop running tools/mock_server.py.
 // Resolved at boot by detectUploadEndpoint(), below. Deliberately `let`: ES
 // module bindings are live, so every importer sees the value the moment it is
 // decided, without anyone having to thread it through.
 export let UPLOAD_ENDPOINT = null;
+
+// Set this to the real API once it exists, and the deployed app posts there
+// with no query string and no per-device setup:
+//
+//   export const DEFAULT_UPLOAD_ENDPOINT = 'https://api.example.com/captures';
+//
+// It must be https — the page is served over https, and browsers block a
+// plain-http request from an https page as mixed content, silently.
+export const DEFAULT_UPLOAD_ENDPOINT = null;
+
+// Extra headers for the real API, e.g. { Authorization: 'Bearer ...' }.
+//
+// Be aware of the cost: a multipart POST with no custom headers is a "simple"
+// request and goes straight out, but adding any header here makes it
+// preflighted, so the server must also answer OPTIONS. That is the single most
+// common reason a working curl becomes a failing browser upload.
+export const UPLOAD_HEADERS = {};
 
 const ENDPOINT_KEY = 'skin-capture.endpoint';
 
@@ -161,7 +176,14 @@ export async function detectUploadEndpoint() {
       UPLOAD_ENDPOINT = saved;
       return saved;
     }
-  } catch { /* storage unavailable; fall through to the probe */ }
+  } catch { /* storage unavailable; fall through */ }
+
+  // A configured production endpoint beats probing: the deployed app should
+  // not depend on whatever happens to be answering on its own origin.
+  if (DEFAULT_UPLOAD_ENDPOINT) {
+    UPLOAD_ENDPOINT = DEFAULT_UPLOAD_ENDPOINT;
+    return UPLOAD_ENDPOINT;
+  }
 
   try {
     const res = await fetch('__health', { cache: 'no-store' });

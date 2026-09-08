@@ -415,3 +415,78 @@ promise rejections — to `POST /__log`, and the dev server prints them:
 ```
 
 Diagnostics only: it is inert without an endpoint, and never sends image data.
+
+## Swapping the mock server for the real one
+
+Nothing in the app is specific to `mock_server.py`. It POSTs multipart to a URL
+and wants a 2xx back — any stack that honours the contract above works
+unchanged. Point it at the real API by setting one constant in `src/config.js`:
+
+```js
+export const DEFAULT_UPLOAD_ENDPOINT = 'https://api.example.com/captures';
+```
+
+That takes precedence over the same-origin probe, so the deployed app posts to
+the real API with no query string and nothing to configure per device. If the
+API needs a key, add it to `UPLOAD_HEADERS` — but read the preflight note below
+before you do.
+
+### Four things that only break with a real server
+
+The mock server sits on the same origin, unauthenticated, with no proxy in
+front. A real one usually has none of those properties, and each difference has
+a failure mode that looks like "uploads just don't work":
+
+1. **HTTPS is mandatory.** The page is served over https, and a browser blocks
+   a plain-http request from an https page as mixed content — with no error the
+   app can catch. An `http://` endpoint fails 100% of the time, silently.
+
+2. **CORS.** A different origin means the response needs
+   `Access-Control-Allow-Origin`. Without it the browser discards the response
+   and the upload looks like a network failure *even when the server stored the
+   file perfectly* — so check the server's own logs before believing the app.
+
+3. **Preflight, if you add headers.** A multipart POST with no custom headers
+   is a "simple" request and goes straight out. Add `Authorization` — or
+   anything else — and it becomes preflighted, so the server must also answer
+   `OPTIONS` with the matching `Access-Control-Allow-Headers`. This is the
+   usual reason a request that works in curl fails in the browser.
+
+4. **Body size limits.** A capture is roughly 200 KB–1 MB across the two files.
+   nginx defaults to 1 MB (`client_max_body_size`), and several frameworks
+   default lower. The symptom is HTTP 413 on the larger captures only, which
+   reads as intermittent.
+
+### A reference implementation
+
+The contract in FastAPI, matching `mock_server.py` behaviour:
+
+```python
+from fastapi import FastAPI, File, Form, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI()
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"])
+
+@app.post("/captures")
+async def receive(
+    capture_id: str = Form(...),
+    session_id: str = Form(...),
+    group: str = Form(...),
+    region: str = Form(...),
+    skin_px: int = Form(...),
+    width: int = Form(...),
+    height: int = Form(...),
+    image: UploadFile = File(...),
+    mask: UploadFile = File(...),
+):
+    if already_stored(capture_id):
+        return {"status": "duplicate"}      # 2xx, so the client stops retrying
+    store(capture_id, await image.read(), await mask.read())
+    return {"status": "stored"}
+```
+
+The one non-obvious requirement: **return 2xx for a `capture_id` you already
+hold.** Phones lose signal mid-upload, so retries of an already-received
+capture are routine. Answering with an error makes the client retry until it
+gives up, and the capture never leaves the device.

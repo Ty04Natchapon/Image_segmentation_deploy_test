@@ -17,7 +17,7 @@
  */
 
 import {
-  UPLOAD_ENDPOINT, UPLOAD_MAX_ATTEMPTS, UPLOAD_TIMEOUT_MS, APP_VERSION,
+  UPLOAD_ENDPOINT, UPLOAD_MAX_ATTEMPTS, UPLOAD_TIMEOUT_MS, UPLOAD_HEADERS, APP_VERSION,
 } from './config.js';
 import * as store from './storage.js';
 
@@ -79,6 +79,10 @@ export async function uploadOne(rec, endpoint = UPLOAD_ENDPOINT) {
     const res = await fetch(endpoint, {
       method: 'POST',
       body: buildFormData(rec),
+      // Never set Content-Type here: the browser has to add the multipart
+      // boundary itself, and overriding it produces a body the server cannot
+      // parse.
+      headers: UPLOAD_HEADERS,
       signal: abort.signal,
     });
     if (!res.ok) throw new Error(`Server returned ${res.status} ${res.statusText}`);
