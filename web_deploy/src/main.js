@@ -495,13 +495,18 @@ async function capture(payload, now) {
   state.flashUntil = now + CFG.CAPTURE_TEXT_MS;
   state.tracker.reset();
 
+  // Named phases, so a failure says which step broke rather than leaving us
+  // to guess between segmentation, encoding and storage.
+  let step = 'start';
   try {
     const frame = payload.frame;
     const w = frame.width;
     const h = frame.height;
 
+    step = 'segment';
     const skin = M.createMask(w, h);
     const hasSkin = writeSkinMask(state.vision.segmenterImage, frame, null, w, h, skin);
+    step = 'build mask';
     const mask = R.buildRegionMask(payload.landmarks, w, h, payload.group, hasSkin ? skin : null);
     const skinPx = R.countSkinPixels(mask);
 
@@ -515,8 +520,11 @@ async function capture(payload, now) {
     // One at a time, not Promise.all: iOS Safari has a long history of
     // returning null from concurrent toBlob calls on large canvases, and our
     // toBlob helper turns a null into a thrown capture.
+    step = 'encode jpeg';
     const clean = await toBlob(frame, 'image/jpeg', CFG.JPEG_QUALITY);
+    step = 'encode mask png';
     const maskBlob = await toBlob(maskCanvas, 'image/png');
+    step = 'encode preview';
     const preview = await makePreview(frame, mask, w, h, payload.group);
 
     const rec = {
@@ -544,6 +552,7 @@ async function capture(payload, now) {
     };
     // Stored BEFORE any upload is attempted. The capture is safe on the device
     // from this line onwards, so a failed hand-off is only ever a retry.
+    step = 'save to storage';
     await store.saveCapture(rec);
 
     state.counts[payload.group]++;
@@ -567,7 +576,7 @@ async function capture(payload, now) {
     // about thirty times a second, so an error put there is gone before
     // anyone can read it — which is exactly how this stayed invisible.
     showError(
-      `${err && err.name ? err.name + ': ' : ''}${(err && err.message) || err}`,
+      `[${step}] ${err && err.name ? err.name + ': ' : ''}${(err && err.message) || err}`,
       (err && err.stack) || '',
     );
   } finally {

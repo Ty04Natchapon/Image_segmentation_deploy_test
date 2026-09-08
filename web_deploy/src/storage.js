@@ -40,6 +40,19 @@ function openDb() {
   return dbPromise;
 }
 
+/**
+ * IndexedDB reports failures badly: `transaction.error` is frequently null on
+ * an abort, so passing it straight to the caller produces the useless message
+ * "null". Always hand back a real Error, and prefer the request-level error,
+ * which names the actual cause where the transaction-level one does not.
+ */
+function dbError(source, what) {
+  const e = source && source.error;
+  if (e instanceof Error) return e;
+  if (e) return new Error(`IndexedDB ${what}: ${e.name || e}`);
+  return new Error(`IndexedDB ${what} with no error detail`);
+}
+
 function tx(mode, fn) {
   return openDb().then((db) => new Promise((resolve, reject) => {
     const t = db.transaction(STORE, mode);
@@ -51,9 +64,12 @@ function tx(mode, fn) {
       reject(err);
       return;
     }
+    if (result && result.__req) {
+      result.__req.onerror = () => reject(dbError(result.__req, 'request failed'));
+    }
     t.oncomplete = () => resolve(result && result.__req ? result.__req.result : result);
-    t.onerror = () => reject(t.error);
-    t.onabort = () => reject(t.error);
+    t.onerror = () => reject(dbError(t, 'transaction failed'));
+    t.onabort = () => reject(dbError(t, 'transaction aborted'));
   }));
 }
 
@@ -64,13 +80,50 @@ export function captureBasename(rec) {
   return `${groupDir(rec.group)}_${Math.floor(rec.ts / 1000)}_px${rec.skinPx}`;
 }
 
-export function saveCapture(rec) {
-  return tx('readwrite', (store) => wrap(store.add(rec)));
+// Images are stored as ArrayBuffers, not Blobs.
+//
+// WebKit's IndexedDB has long-standing trouble writing Blobs: the transaction
+// aborts with a null error, which is exactly the "capture failed - null" this
+// worked around. ArrayBuffers are structured-cloned reliably everywhere, so we
+// unwrap on the way in and rebuild the Blob on the way out. Callers never see
+// the difference.
+const BLOB_FIELDS = ['clean', 'mask', 'preview'];
+
+// Exported for test/storage.test.js only: this round trip is what a capture
+// lives or dies by, and it was untested when it broke.
+export async function toStorable(rec) {
+  const out = { ...rec };
+  for (const field of BLOB_FIELDS) {
+    const value = rec[field];
+    if (value instanceof Blob) {
+      out[field] = await value.arrayBuffer();
+      out[`${field}Type`] = value.type || '';
+    }
+  }
+  return out;
+}
+
+export function fromStored(rec) {
+  const out = { ...rec };
+  for (const field of BLOB_FIELDS) {
+    const value = rec[field];
+    if (value && !(value instanceof Blob)) {
+      out[field] = new Blob([value], { type: rec[`${field}Type`] || '' });
+    }
+  }
+  return out;
+}
+
+export async function saveCapture(rec) {
+  // Converted before the transaction opens: an IndexedDB transaction closes
+  // itself the moment the task queue drains, so awaiting inside one kills it.
+  const storable = await toStorable(rec);
+  return tx('readwrite', (store) => wrap(store.add(storable)));
 }
 
 export function listCaptures() {
   return tx('readonly', (store) => wrap(store.getAll()))
-    .then((rows) => rows.sort((a, b) => b.ts - a.ts));
+    .then((rows) => rows.map(fromStored).sort((a, b) => b.ts - a.ts));
 }
 
 export function deleteCapture(id) {
@@ -127,7 +180,8 @@ export async function exportCapture(rec) {
 /** Captures not yet accepted by the server, oldest first (upload in order). */
 export function listPending() {
   return tx('readonly', (store) => wrap(store.getAll()))
-    .then((rows) => rows.filter((r) => !r.uploaded).sort((a, b) => a.ts - b.ts));
+    .then((rows) => rows.filter((r) => !r.uploaded).map(fromStored)
+      .sort((a, b) => a.ts - b.ts));
 }
 
 function patch(id, fields) {
