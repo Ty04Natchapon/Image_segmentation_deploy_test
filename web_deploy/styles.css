@@ -278,3 +278,26 @@ a.ghost {
   padding: 9px 14px;
   min-height: 44px;
 }
+
+/* --- capture error banner ------------------------------------------------
+   Above the flash on purpose. A capture that fails still shows the green
+   "Captured" overlay for a moment, and the reason it failed must not be the
+   thing hidden underneath it. */
+
+.errbar {
+  position: absolute;
+  left: 12px; right: 12px; bottom: 56px;
+  z-index: 4;
+  width: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--bad);
+  border-radius: 10px;
+  background: rgba(46, 12, 12, .92);
+  backdrop-filter: blur(8px);
+  color: #ffd7d7;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+  min-height: 0;
+}

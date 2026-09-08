@@ -31,6 +31,7 @@ const els = {
   flipBtn: $('flipBtn'), galleryBtn: $('galleryBtn'), galleryCount: $('galleryCount'),
   lightBtn: $('lightBtn'), fillLight: $('fillLight'), syncBtn: $('syncBtn'),
   hold: $('hold'), holdBar: $('holdBar'), serverLink: $('serverLink'),
+  errbar: $('errbar'),
   gallery: $('gallery'), galleryGrid: $('galleryGrid'), galleryEmpty: $('galleryEmpty'),
   closeGalleryBtn: $('closeGalleryBtn'), clearBtn: $('clearBtn'), progress: $('progress'),
 };
@@ -62,6 +63,9 @@ const state = {
   cameraSettings: {},
   cameraControls: '',
   lastError: '',
+  tries: 0,
+  saved: 0,
+  failed: 0,
   fps: 0,
   lastFrameAt: 0,
 };
@@ -402,7 +406,7 @@ function loop() {
       `seg     ${state.skinValid ? 'on' : 'OFF'}\n` +
       `ctrl    ${state.cameraControls || '?'}\n` +
       `shot    ${state.captureSize ? state.captureSize.w + 'x' + state.captureSize.h : '?'}` +
-      `  saved ${state.counts.GROUP_1 + state.counts.GROUP_2 + state.counts.GROUP_3}` +
+      `  try ${state.tries} ok ${state.saved} err ${state.failed}` +
       (state.lastError ? `\nerr     ${state.lastError}` : '');
   }
 
@@ -431,6 +435,24 @@ function loop() {
 
 function drawFlash(now) {
   els.flash.hidden = now >= state.flashUntil;
+}
+
+/**
+ * A capture error has to survive the frame loop.
+ *
+ * The hint is rewritten every frame, so anything put there lasts about 16ms —
+ * long enough to be technically displayed and far too short to be read. This
+ * banner stays up until the next successful capture, or until it is tapped.
+ */
+function showError(message) {
+  state.lastError = message;
+  els.errbar.textContent = `Capture failed — ${message}  (tap to dismiss)`;
+  els.errbar.hidden = false;
+}
+
+function clearError() {
+  state.lastError = '';
+  els.errbar.hidden = true;
 }
 
 // --- capture ---------------------------------------------------------------
@@ -466,6 +488,7 @@ async function makePreview(frame, mask, w, h, group) {
  */
 async function capture(payload, now) {
   state.capturing = true;
+  state.tries++;
   state.cooldownUntil = now + CFG.COOLDOWN_MS;
   state.flashUntil = now + CFG.CAPTURE_TEXT_MS;
   state.tracker.reset();
@@ -529,13 +552,19 @@ async function capture(payload, now) {
     console.log(`[saved] ${store.captureBasename(rec)} ` +
       `(ratio=${rec.ratio.toFixed(2)}, brightness=${rec.brightness.toFixed(0)}, skin_px=${skinPx})`);
 
+    state.saved++;
+    clearError();
+
     if (CFG.UPLOAD_ENDPOINT && CFG.UPLOAD_AUTO) runSync();
   } catch (err) {
     // Shown on screen, not just logged: reading a phone's console needs a
     // tethered Mac, and this is the message that explains an empty gallery.
     console.error('[error] capture failed:', err);
-    state.lastError = `${err && err.name ? err.name + ': ' : ''}${err && err.message ? err.message : err}`;
-    els.hint.textContent = `Capture failed — ${state.lastError}`;
+    state.failed++;
+    // Into its own banner, NOT the hint: the frame loop rewrites the hint
+    // about thirty times a second, so an error put there is gone before
+    // anyone can read it — which is exactly how this stayed invisible.
+    showError(`${err && err.name ? err.name + ': ' : ''}${(err && err.message) || err}`);
   } finally {
     state.capturing = false;
   }
@@ -741,6 +770,7 @@ els.lightBtn.addEventListener('click', () => {
   els.lightBtn.textContent = on ? 'Light off' : 'Fill light';
 });
 
+els.errbar.addEventListener('click', clearError);
 els.syncBtn.addEventListener('click', runSync);
 els.galleryBtn.addEventListener('click', openGallery);
 els.closeGalleryBtn.addEventListener('click', closeGallery);
@@ -791,4 +821,11 @@ renderProgress();
 // basement should still reach the server on the walk out.
 sync.watchConnectivity(() => refreshGalleryCount());
 refreshSyncBadge().catch(() => {});
-restoreCounts().catch((err) => console.error('[error] could not read past captures:', err));
+// If IndexedDB is unavailable — a private tab on iOS is the usual reason —
+// every capture would appear to succeed and silently vanish. Better to say so
+// on load than to let someone shoot a whole session into nothing.
+restoreCounts().catch((err) => {
+  console.error('[error] could not read past captures:', err);
+  showError(`storage unavailable (${(err && err.message) || err}). `
+    + 'Captures cannot be saved — a private browsing tab is the usual cause.');
+});
