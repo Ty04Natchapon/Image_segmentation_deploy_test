@@ -16,8 +16,8 @@ import * as CFG from './config.js';
 import * as R from './regions.js';
 import * as M from './mask.js';
 import {
-  symmetryRatio, classifyRatio, checkDistance, checkLighting, checkPose, checkOcclusion,
-  nextTargetHint, PeakTracker, groupLabel,
+  symmetryRatio, classifyRatio, checkDistance, checkLighting, checkOcclusion,
+  checkTargetPose, targetInstruction, stepLabel, SEQUENCE, PeakTracker, groupLabel,
 } from './pose.js';
 import { loadVision, detectLandmarks, writeSkinMask } from './vision.js';
 import * as store from './storage.js';
@@ -33,7 +33,8 @@ const els = {
   flipBtn: $('flipBtn'), galleryBtn: $('galleryBtn'), galleryCount: $('galleryCount'),
   lightBtn: $('lightBtn'), fillLight: $('fillLight'), syncBtn: $('syncBtn'),
   hold: $('hold'), holdBar: $('holdBar'), serverLink: $('serverLink'),
-  errbar: $('errbar'),
+  errbar: $('errbar'), stepBar: $('stepBar'), stepLabel: $('stepLabel'),
+  restartBtn: $('restartBtn'),
   gallery: $('gallery'), galleryGrid: $('galleryGrid'), galleryEmpty: $('galleryEmpty'),
   closeGalleryBtn: $('closeGalleryBtn'), clearBtn: $('clearBtn'), progress: $('progress'),
 };
@@ -58,6 +59,9 @@ const state = {
   tracker: new PeakTracker(),
   cooldownUntil: 0,
   flashUntil: 0,
+  // Which of the three shots we are asking for. The sequence is the whole
+  // point: without a target the pose check has nothing to compare against.
+  stepIndex: 0,
   counts: { GROUP_1: 0, GROUP_2: 0, GROUP_3: 0 },
   lastPx: { GROUP_1: null, GROUP_2: null, GROUP_3: null },
   capturing: false,
@@ -277,15 +281,19 @@ function setGate(el, state, text) {
 }
 
 function renderProgress() {
-  els.progress.innerHTML = CFG.GROUP_ORDER.map((g) => {
+  const current = SEQUENCE[state.stepIndex] || null;
+  els.progress.innerHTML = SEQUENCE.map((g, i) => {
     const n = state.counts[g];
     const px = state.lastPx[g];
-    return `<div class="chip${n ? ' done' : ''}">
-      <div class="name">${groupLabel(g)}</div>
-      <div class="val">${n}</div>
-      <div class="px">${px == null ? '—' : `${px.toLocaleString()} px`}</div>
+    const state_ = g === current ? ' current' : (i < state.stepIndex ? ' done' : '');
+    return `<div class="chip${state_}">
+      <div class="name">${i + 1}. ${groupLabel(g)}</div>
+      <div class="val">${i < state.stepIndex ? '✓' : n || '—'}</div>
+      <div class="px">${px == null ? '' : `${px.toLocaleString()} px`}</div>
     </div>`;
   }).join('');
+  els.stepLabel.textContent = stepLabel(state.stepIndex);
+  els.restartBtn.hidden = state.stepIndex < SEQUENCE.length;
 }
 
 // --- the frame loop --------------------------------------------------------
@@ -363,14 +371,20 @@ function loop() {
   const lightBox = R.padBounds(bounds, pw, ph, CFG.BBOX_PADDING);
   const distance = checkDistance(bounds, pw, ph);
   const light = checkLighting(meanLuma(procCanvas, lightBox), 32, { x0: 0, y0: 0, x1: 32, y1: 32 });
-  const pose = checkPose(group, ratio);
-  const clear = checkOcclusion(group, skin ? stats.coverage : 1, foreheadCov);
+  const target = SEQUENCE[state.stepIndex] || null;
+  const pose = target
+    ? checkTargetPose(target, group, ratio)
+    : { ok: false, msg: 'All three captured' };
+  const clear = checkOcclusion(target || group, skin ? stats.coverage : 1, foreheadCov);
   const cooling = now < state.cooldownUntil;
 
   // Deliberately excludes the cooldown: your position is still good in the
   // three seconds after a shot, and flashing the outline back to red would
   // read as "you did something wrong" when you did not.
-  const positionOk = distance.ok && light.ok && pose.ok && clear.ok;
+  // Finishing the sequence is not a failure, so the outline must not go red
+  // once all three are done — there is nothing left for the user to correct.
+  const done = !target;
+  const positionOk = done || (distance.ok && light.ok && pose.ok && clear.ok);
 
   state.overlay.ctx.putImageData(
     M.maskToImageData(mask, pw, ph,
@@ -397,7 +411,8 @@ function loop() {
   // "What next" belongs in the cooldown, not while you are being asked to hold
   // — telling someone to turn their head under a green outline and a filling
   // progress bar is two contradictory instructions at once.
-  else if (cooling) hint = nextTargetHint(state.counts);
+  else if (!target) hint = 'All three captured — open Gallery';
+  else if (cooling) hint = targetInstruction(SEQUENCE[state.stepIndex]);
   else hint = 'Hold still';
   els.hint.textContent = hint;
   els.hint.classList.toggle('ready', positionOk);
@@ -413,6 +428,8 @@ function loop() {
       `fps     ${state.fps.toFixed(0)}\n` +
       `cam     ${state.cameraSettings.width || '?'}x${state.cameraSettings.height || '?'}\n` +
       `proc    ${pw}x${ph}\n` +
+      `step    ${state.stepIndex + 1}/${SEQUENCE.length} want ${target || 'done'}
+` +
       `ratio   ${ratio.toFixed(3)}  ${group}\n` +
       `face    ${distance.frac.toFixed(3)} of short edge  ${(faceCapturePx / CFG.FACE_WIDTH_MM).toFixed(1)} px/mm\n` +
       `bright  ${light.brightness.toFixed(0)}\n` +
@@ -428,7 +445,7 @@ function loop() {
       (state.lastError ? `\nerr     ${state.lastError}` : '');
   }
 
-  const gatesOpen = positionOk && !cooling && !state.capturing;
+  const gatesOpen = !done && positionOk && !cooling && !state.capturing;
   if (!gatesOpen) {
     state.tracker.reset();
   } else if (state.tracker.shouldSample(now)) {
@@ -578,6 +595,8 @@ async function capture(payload, now) {
 
     state.counts[payload.group]++;
     state.lastPx[payload.group] = skinPx;
+    // Only a capture of the shot we asked for moves the sequence on.
+    if (SEQUENCE[state.stepIndex] === payload.group) state.stepIndex++;
     renderProgress();
     await refreshGalleryCount();
 
@@ -787,6 +806,7 @@ async function begin() {
     els.startOverlay.hidden = true;
     els.gates.hidden = false;
     els.progress.hidden = false;
+    els.stepBar.hidden = false;
     els.galleryBtn.hidden = false;
     els.lightBtn.hidden = false;
     els.syncBtn.hidden = !CFG.UPLOAD_ENDPOINT;
@@ -808,6 +828,14 @@ els.lightBtn.addEventListener('click', () => {
   const on = document.body.classList.toggle('lit');
   els.fillLight.hidden = !on;
   els.lightBtn.textContent = on ? 'Light off' : 'Fill light';
+});
+
+els.restartBtn.addEventListener('click', () => {
+  // Runs the sequence again. Earlier captures stay in the gallery — starting
+  // over means taking another set, not discarding the last one.
+  state.stepIndex = 0;
+  state.tracker.reset();
+  renderProgress();
 });
 
 els.errbar.addEventListener('click', clearError);

@@ -307,3 +307,27 @@ a.ghost {
 @media (min-width: 460px) {
   .gates li { flex: 1 1 0; }
 }
+
+/* --- guided sequence ----------------------------------------------------- */
+
+.stepbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 0 2px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.stepbar button { padding: 7px 12px; min-height: 38px; font-size: 13px; }
+
+/* Three states, not two: done, the one being asked for now, and not yet
+   reached. Without the middle one the user cannot tell which step is live. */
+.chip.current {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.chip.current .name { color: var(--accent); }
+.chip.done { border-color: var(--ok); }
+.chip.done .val { color: var(--ok); }

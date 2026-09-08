@@ -79,27 +79,37 @@ export function checkLighting(rgba, w, box) {
   return { ok: true, msg: 'Light OK', brightness };
 }
 
+/** The order the three shots are asked for. */
+export const SEQUENCE = GROUP_ORDER;   // front, then left cheek, then right
+
+/** What to ask for at this step, in the second person. */
+export function targetInstruction(target) {
+  if (target === 'GROUP_3') return 'Look straight at the camera';
+  if (target === 'GROUP_2') return 'Turn to show your LEFT cheek';
+  return 'Turn to show your RIGHT cheek';
+}
+
 /**
- * Pose gate.
+ * Pose gate, against the shot we are currently asking for.
  *
- * Note the asymmetry, which is inherited from the Python and is not a bug:
- * classifyRatio() already used the 1.5 / 0.6 thresholds to *pick* the group,
- * so a cheek shot is passing by construction and can only ever read "hold
- * still". Only the front has a genuinely tighter gate — the 0.6..1.5
- * classification band versus the +/-0.15 capture band — which is why
- * "face forward" is the one correction the user can actually receive.
+ * This is the piece the Python could not have. There, classifyRatio() read
+ * whichever way the head happened to be turned and assigned the group to
+ * match, so the pose check re-tested the thresholds that had just chosen the
+ * group and passed by construction — "turn your head" was unreachable code.
+ *
+ * With a target to compare against, the correction becomes real: a mismatch
+ * means the user is not yet in the pose being asked for, and can be told so.
  */
-export function checkPose(group, ratio) {
-  if (group === 'GROUP_2') return { ok: true, msg: 'Hold still — left cheek' };
-  if (group === 'GROUP_1') return { ok: true, msg: 'Hold still — right cheek' };
-  if (Math.abs(ratio - 1.0) <= FRONT_SYMMETRY_TOLERANCE) {
-    return { ok: true, msg: 'Hold still — front' };
+export function checkTargetPose(target, detected, ratio) {
+  if (detected !== target) {
+    return { ok: false, msg: targetInstruction(target) };
   }
-  return {
-    ok: false,
-    msg: ratio > 1.0 ? 'Face forward (turn slightly right)'
-                     : 'Face forward (turn slightly left)',
-  };
+  // The front shot keeps its tighter band: classifyRatio accepts 0.6..1.5 as
+  // "front", which is far looser than a symmetric portrait needs.
+  if (target === 'GROUP_3' && Math.abs(ratio - 1.0) > FRONT_SYMMETRY_TOLERANCE) {
+    return { ok: false, msg: 'Face the camera squarely' };
+  }
+  return { ok: true, msg: 'Hold still' };
 }
 
 /**
@@ -121,13 +131,10 @@ export function checkOcclusion(group, coverage, forehead) {
   return { ok: true, msg: 'Skin clear', coverage };
 }
 
-/** What to ask the user for next, given what has already been captured. */
-export function nextTargetHint(counts) {
-  const missing = GROUP_ORDER.find((g) => !counts[g]);
-  if (!missing) return 'All three angles captured';
-  if (missing === 'GROUP_3') return 'Look straight at the camera';
-  if (missing === 'GROUP_2') return 'Turn your head to show your LEFT cheek';
-  return 'Turn your head to show your RIGHT cheek';
+/** Step label for the UI: "Step 2 of 3 — Left cheek". */
+export function stepLabel(index) {
+  if (index >= SEQUENCE.length) return 'All three captured';
+  return `Step ${index + 1} of ${SEQUENCE.length} — ${GROUPS[SEQUENCE[index]].label}`;
 }
 
 function isPeak(prev2, prev1, curr, group) {

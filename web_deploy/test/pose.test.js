@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  symmetryRatio, classifyRatio, checkDistance, checkLighting, checkPose,
-  nextTargetHint, PeakTracker,
+  symmetryRatio, classifyRatio, checkDistance, checkLighting,
+  checkTargetPose, targetInstruction, stepLabel, SEQUENCE, PeakTracker,
 } from '../src/pose.js';
 import { makeFace } from './fixtures.js';
 
@@ -55,24 +55,41 @@ test('lighting gate flags dark and blown-out frames', () => {
   assert.ok(Math.abs(checkLighting(solid(128), 4, fullBox()).brightness - 128) < 1);
 });
 
-test('pose gate corrects only the front shot, and names the direction', () => {
-  assert.equal(checkPose('GROUP_3', 1.0).ok, true);
-  assert.equal(checkPose('GROUP_3', 1.30).ok, false);
-  assert.match(checkPose('GROUP_3', 1.30).msg, /turn slightly right/);
-  assert.match(checkPose('GROUP_3', 0.70).msg, /turn slightly left/);
-
-  // Inherited from the Python: classifyRatio already used these thresholds to
-  // pick the group, so a cheek shot passes by construction.
-  assert.equal(checkPose('GROUP_1', 0.3).ok, true);
-  assert.equal(checkPose('GROUP_2', 1.9).ok, true);
+test('the sequence asks for front, then left cheek, then right', () => {
+  assert.deepEqual(SEQUENCE, ['GROUP_3', 'GROUP_2', 'GROUP_1']);
+  assert.match(targetInstruction('GROUP_3'), /straight at the camera/);
+  assert.match(targetInstruction('GROUP_2'), /LEFT cheek/);
+  assert.match(targetInstruction('GROUP_1'), /RIGHT cheek/);
 });
 
-test('nextTargetHint walks the user through the missing angles', () => {
-  const none = { GROUP_1: 0, GROUP_2: 0, GROUP_3: 0 };
-  assert.match(nextTargetHint(none), /straight at the camera/);
-  assert.match(nextTargetHint({ ...none, GROUP_3: 1 }), /LEFT cheek/);
-  assert.match(nextTargetHint({ GROUP_1: 0, GROUP_2: 1, GROUP_3: 1 }), /RIGHT cheek/);
-  assert.match(nextTargetHint({ GROUP_1: 1, GROUP_2: 1, GROUP_3: 1 }), /All three/);
+test('a pose that is not the one asked for is refused, and says what to do', () => {
+  // This is the check the Python could not make. There, the detected pose WAS
+  // the target by construction, so "turn your head" was unreachable.
+  const wrong = checkTargetPose('GROUP_2', 'GROUP_3', 1.0);
+  assert.equal(wrong.ok, false);
+  assert.match(wrong.msg, /LEFT cheek/);
+
+  const alsoWrong = checkTargetPose('GROUP_1', 'GROUP_2', 1.8);
+  assert.equal(alsoWrong.ok, false);
+  assert.match(alsoWrong.msg, /RIGHT cheek/);
+});
+
+test('matching the target passes, and the front keeps its tighter band', () => {
+  assert.equal(checkTargetPose('GROUP_2', 'GROUP_2', 1.8).ok, true);
+  assert.equal(checkTargetPose('GROUP_1', 'GROUP_1', 0.4).ok, true);
+
+  assert.equal(checkTargetPose('GROUP_3', 'GROUP_3', 1.0).ok, true);
+  // classifyRatio calls 0.6..1.5 "front", which is far looser than a portrait
+  // needs, so the front target re-checks at +/-0.15.
+  assert.equal(checkTargetPose('GROUP_3', 'GROUP_3', 1.30).ok, false);
+  assert.match(checkTargetPose('GROUP_3', 'GROUP_3', 1.30).msg, /squarely/);
+});
+
+test('step labels count from one and end with a finished state', () => {
+  assert.match(stepLabel(0), /^Step 1 of 3 — Front$/);
+  assert.match(stepLabel(1), /^Step 2 of 3 — Left cheek$/);
+  assert.match(stepLabel(2), /^Step 3 of 3 — Right cheek$/);
+  assert.match(stepLabel(3), /All three captured/);
 });
 
 test('the peak detector samples on a clock, not on frames', () => {
