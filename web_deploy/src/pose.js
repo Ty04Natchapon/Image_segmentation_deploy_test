@@ -12,6 +12,8 @@ import {
   FACE_WIDTH_MAX_FRAC,
   BRIGHTNESS_MIN,
   BRIGHTNESS_MAX,
+  MIN_SKIN_COVERAGE,
+  MIN_FOREHEAD_COVERAGE,
   PEAK_SAMPLE_INTERVAL_MS,
   PEAK_WINDOW,
   GROUPS,
@@ -98,6 +100,25 @@ export function checkPose(group, ratio) {
     msg: ratio > 1.0 ? 'Face forward (turn slightly right)'
                      : 'Face forward (turn slightly left)',
   };
+}
+
+/**
+ * Is anything covering the skin we are about to measure?
+ *
+ * `coverage` is how much of the region the segmenter calls face-skin; glasses
+ * frames, a hand or hair across a cheek all drag it down. `forehead` is the
+ * same idea for the band above the brow, which the front shot needs
+ * separately — its region is mostly the centre strip, so a fringe barely moves
+ * the overall figure while ruining the forehead entirely.
+ */
+export function checkOcclusion(group, coverage, forehead) {
+  if (coverage < MIN_SKIN_COVERAGE) {
+    return { ok: false, msg: 'Move hair or glasses off your face', coverage };
+  }
+  if (group === 'GROUP_3' && forehead < MIN_FOREHEAD_COVERAGE) {
+    return { ok: false, msg: 'Move hair off your forehead', coverage };
+  }
+  return { ok: true, msg: 'Skin clear', coverage };
 }
 
 /** What to ask the user for next, given what has already been captured. */

@@ -92,13 +92,14 @@ button:disabled { opacity: .5; cursor: default; }
   position: absolute;
   left: 12px; right: 12px; bottom: 12px;
   display: flex;
+  flex-wrap: wrap;          /* four gates will not fit one narrow row legibly */
   gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 .gates li {
-  flex: 1;
+  flex: 1 1 calc(50% - 3px);
   display: flex;
   align-items: center;
   gap: 7px;
@@ -300,4 +301,9 @@ a.ghost {
   line-height: 1.4;
   text-align: left;
   min-height: 0;
+}
+
+/* Enough width for one row of four; below this they stack two by two. */
+@media (min-width: 460px) {
+  .gates li { flex: 1 1 0; }
 }

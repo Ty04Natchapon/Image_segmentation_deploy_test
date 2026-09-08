@@ -11,7 +11,9 @@
 
 import * as M from './mask.js';
 import * as L from './landmarks.js';
-import { HOLE_DILATE_PX, INTERSECT_SKIN_ALL_REGIONS, scaleRadius } from './config.js';
+import {
+  HOLE_DILATE_PX, INTERSECT_SKIN_ALL_REGIONS, FOREHEAD_BAND_FRAC, scaleRadius,
+} from './config.js';
 
 /** Landmark ids -> flat pixel coordinates [x0,y0,x1,y1,...]. */
 export function pointsFor(landmarks, w, h, ids) {
@@ -116,7 +118,7 @@ export function holesMask(landmarks, w, h, out) {
  * strip in two (a hard shadow beside the nose, say), we lose a few pixels
  * rather than half the region.
  */
-export function buildRegionMask(landmarks, w, h, group, skinMask) {
+export function buildRegionMask(landmarks, w, h, group, skinMask, stats = null) {
   const s = scratch(w, h);
   const mask = M.createMask(w, h);       // the only buffer that escapes
 
@@ -137,8 +139,55 @@ export function buildRegionMask(landmarks, w, h, group, skinMask) {
   M.andNotInto(mask, holesMask(landmarks, w, h, s.aux));
   M.keepLargestComponent(mask, w, h);
 
+  // Area before the skin intersection, so the caller can tell how much of the
+  // region the segmenter refused to call skin. That difference is an
+  // obstruction: glasses, a hand, hair swept across the face.
+  if (stats) stats.geometricPx = M.countNonZero(mask);
+
   if (skinMask && INTERSECT_SKIN_ALL_REGIONS) M.andInto(mask, skinMask);
+
+  if (stats) {
+    stats.skinPx = M.countNonZero(mask);
+    stats.coverage = stats.geometricPx > 0 ? stats.skinPx / stats.geometricPx : 0;
+  }
   return mask;
+}
+
+/**
+ * How much of the forehead is bare skin rather than hair.
+ *
+ * Measured on a band immediately above the brow line, narrowed to the middle
+ * 60% of the temple span so the hairline at the sides does not count against a
+ * perfectly clear forehead. Returns 1 when there is no skin mask to judge
+ * from — an unknown must not block the shot.
+ */
+export function foreheadCoverage(landmarks, w, h, skinMask) {
+  if (!skinMask) return 1;
+
+  const brow = browY(landmarks, h);
+  const faceH = Math.abs(landmarks[L.CHIN].y - landmarks[L.FOREHEAD_CENTER].y) * h;
+  const top = Math.max(0, Math.round(brow - faceH * FOREHEAD_BAND_FRAC));
+  const bottom = Math.min(h, brow);
+  if (bottom <= top) return 1;
+
+  const lx = landmarks[L.LEFT_TEMPLE].x * w;
+  const rx = landmarks[L.RIGHT_TEMPLE].x * w;
+  const cx = (lx + rx) / 2;
+  const half = (Math.abs(rx - lx) / 2) * 0.6;
+  const x0 = Math.max(0, Math.round(cx - half));
+  const x1 = Math.min(w, Math.round(cx + half));
+  if (x1 <= x0) return 1;
+
+  let skin = 0;
+  let total = 0;
+  for (let y = top; y < bottom; y++) {
+    const row = y * w;
+    for (let x = x0; x < x1; x++) {
+      total++;
+      if (skinMask[row + x]) skin++;
+    }
+  }
+  return total ? skin / total : 1;
 }
 
 /**

@@ -61,6 +61,29 @@ export const FRONT_SYMMETRY_TOLERANCE = 0.15;    // |ratio - 1| <= this for fron
 export const FACE_WIDTH_MIN_FRAC = 0.20;  // smaller -> "MOVE CLOSER"
 export const FACE_WIDTH_MAX_FRAC = 0.58;  // larger  -> "MOVE BACK"
 
+// --- Occlusion thresholds --------------------------------------------------
+// Neither version had a gate for this, so a fringe over the forehead or a pair
+// of glasses across the cheek was captured happily — the region mask simply
+// shrank around the obstruction and the pixel count silently dropped.
+//
+// No new model is needed to spot it. Selfie Multiclass already separates hair
+// from face-skin, so anything covering skin shows up as region area that is not
+// classified as skin. One ratio catches hair, glasses, hands and face masks
+// alike.
+
+// Fraction of the geometric region that must actually be face-skin.
+// Catches glasses frames, a hand, hair swept across a cheek.
+export const MIN_SKIN_COVERAGE = 0.75;
+
+// The front shot needs its own check. Its region is the centre strip UNION a
+// forehead derived from the skin mask, so a fringe does not lower the coverage
+// above — it just yields a smaller forehead, and the strip alone still scores
+// near 1.0. So measure the forehead band directly.
+export const MIN_FOREHEAD_COVERAGE = 0.6;
+
+// Height of that band above the brow line, as a fraction of face height.
+export const FOREHEAD_BAND_FRAC = 0.18;
+
 // --- Lighting thresholds ---------------------------------------------------
 export const BRIGHTNESS_MIN = 70;
 export const BRIGHTNESS_MAX = 205;

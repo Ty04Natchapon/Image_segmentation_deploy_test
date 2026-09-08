@@ -547,3 +547,47 @@ rather than discovering the problem after training.
 The definitive test is empirical and takes a minute: capture one image, open it
 at 100%, and see whether *you* can pick out the lesions. If a person cannot, a
 model will not.
+
+## Refusing occluded shots
+
+Neither version originally checked whether anything was covering the skin, so a
+fringe over the forehead or a pair of glasses across the cheek was captured
+happily: the region mask simply shrank around the obstruction and the pixel
+count quietly dropped. That is worse than refusing the shot, because the bad
+data is indistinguishable from good data by the time anyone looks at it.
+
+No extra model is needed. Selfie Multiclass already separates hair from
+face-skin, so anything covering skin shows up as region area the segmenter will
+not call skin. Two measurements come out of that:
+
+| Measurement | Catches |
+| --- | --- |
+| `coverage` — share of the region that is really face-skin | glasses frames, a hand, hair across a cheek |
+| `forehead` — share of the band above the brow that is skin | a fringe |
+
+The front shot needs both. Its region is the centre strip *union* a forehead
+derived from the skin mask, so a fringe does not lower the overall coverage —
+it just yields a smaller forehead while the strip alone still scores near 1.0.
+The forehead band is measured directly for that reason, narrowed to the middle
+60% of the temple span so the hairline at the sides is not counted against a
+perfectly clear forehead.
+
+A fourth gate, **Clear skin**, joins distance, lighting and pose, and the hint
+says which to move — hair off the forehead, or hair and glasses off the face.
+When the segmenter fails on a frame there is no verdict and the shot is not
+blocked: an unknown must not become a refusal.
+
+### Tuning it
+
+`MIN_SKIN_COVERAGE` (0.75) and `MIN_FOREHEAD_COVERAGE` (0.6) are starting
+points chosen from synthetic tests, not from your handset. Open with `?debug=1`
+and watch the live figures:
+
+```
+cover   94% forehead 88%
+```
+
+Do it twice: once framed the way you want the dataset to look, and once
+deliberately obstructed. Set each threshold between the two. Too strict and
+users cannot take a shot at all; too loose and it never fires — and the second
+failure is the quieter one.

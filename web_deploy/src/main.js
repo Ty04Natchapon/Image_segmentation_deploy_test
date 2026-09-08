@@ -16,7 +16,7 @@ import * as CFG from './config.js';
 import * as R from './regions.js';
 import * as M from './mask.js';
 import {
-  symmetryRatio, classifyRatio, checkDistance, checkLighting, checkPose,
+  symmetryRatio, classifyRatio, checkDistance, checkLighting, checkPose, checkOcclusion,
   nextTargetHint, PeakTracker, groupLabel,
 } from './pose.js';
 import { loadVision, detectLandmarks, writeSkinMask } from './vision.js';
@@ -28,6 +28,7 @@ const $ = (id) => document.getElementById(id);
 const els = {
   view: $('view'), hint: $('hint'), gates: $('gates'), flash: $('flash'), debug: $('debug'),
   gateDistance: $('gateDistance'), gateLight: $('gateLight'), gatePose: $('gatePose'),
+  gateClear: $('gateClear'),
   startOverlay: $('startOverlay'), startBtn: $('startBtn'), startMsg: $('startMsg'),
   flipBtn: $('flipBtn'), galleryBtn: $('galleryBtn'), galleryCount: $('galleryCount'),
   lightBtn: $('lightBtn'), fillLight: $('fillLight'), syncBtn: $('syncBtn'),
@@ -325,6 +326,7 @@ function loop() {
     setGate(els.gateDistance, 'idle', 'Distance');
     setGate(els.gateLight, 'idle', 'Lighting');
     setGate(els.gatePose, 'idle', 'Pose');
+    setGate(els.gateClear, 'idle', 'Clear skin');
     els.hold.hidden = true;
     els.hint.classList.remove('ready');
     if (DEBUG) els.debug.textContent = `fps    ${state.fps.toFixed(0)}\nno face`;
@@ -348,8 +350,12 @@ function loop() {
   // Built ONCE per frame. The Python rebuilt this same mask two or three times
   // per frame (contours, then the live count, then again on save) — invisible
   // on a desktop, not on a handset.
-  const mask = R.buildRegionMask(landmarks, pw, ph, group, skin);
-  const skinPx = R.countSkinPixels(mask);
+  const stats = {};
+  const mask = R.buildRegionMask(landmarks, pw, ph, group, skin, stats);
+  const skinPx = stats.skinPx;
+  const foreheadCov = group === 'GROUP_3'
+    ? R.foreheadCoverage(landmarks, pw, ph, skin)
+    : 1;
 
   // Gates BEFORE the overlay is drawn, because the outline's colour is the
   // verdict and it cannot be coloured before the verdict exists.
@@ -358,12 +364,13 @@ function loop() {
   const distance = checkDistance(bounds, pw, ph);
   const light = checkLighting(meanLuma(procCanvas, lightBox), 32, { x0: 0, y0: 0, x1: 32, y1: 32 });
   const pose = checkPose(group, ratio);
+  const clear = checkOcclusion(group, skin ? stats.coverage : 1, foreheadCov);
   const cooling = now < state.cooldownUntil;
 
   // Deliberately excludes the cooldown: your position is still good in the
   // three seconds after a shot, and flashing the outline back to red would
   // read as "you did something wrong" when you did not.
-  const positionOk = distance.ok && light.ok && pose.ok;
+  const positionOk = distance.ok && light.ok && pose.ok && clear.ok;
 
   state.overlay.ctx.putImageData(
     M.maskToImageData(mask, pw, ph,
@@ -377,6 +384,7 @@ function loop() {
   setGate(els.gateDistance, distance.ok ? 'ok' : 'bad', distance.msg);
   setGate(els.gateLight, light.ok ? 'ok' : 'bad', light.msg);
   setGate(els.gatePose, pose.ok ? 'ok' : 'bad', pose.msg);
+  setGate(els.gateClear, skin ? (clear.ok ? 'ok' : 'bad') : 'idle', clear.msg);
 
   // One instruction at a time, in the order the user can act on them: get
   // close enough, get lit, then get the angle. Stacking all three corrections
@@ -384,6 +392,7 @@ function loop() {
   let hint;
   if (!distance.ok) hint = distance.msg;
   else if (!light.ok) hint = light.msg;
+  else if (!clear.ok) hint = clear.msg;
   else if (!pose.ok) hint = pose.msg;
   // "What next" belongs in the cooldown, not while you are being asked to hold
   // — telling someone to turn their head under a green outline and a filling
@@ -407,6 +416,8 @@ function loop() {
       `ratio   ${ratio.toFixed(3)}  ${group}\n` +
       `face    ${distance.frac.toFixed(3)} of short edge  ${(faceCapturePx / CFG.FACE_WIDTH_MM).toFixed(1)} px/mm\n` +
       `bright  ${light.brightness.toFixed(0)}\n` +
+      `cover   ${(stats.coverage * 100).toFixed(0)}% forehead ${(foreheadCov * 100).toFixed(0)}%
+` +
       `skin px ${skinPx.toLocaleString()}\n` +
       `seg     ${state.skinValid ? 'on' : 'OFF'}\n` +
       `api     ${CFG.UPLOAD_ENDPOINT || 'NOT SET — add ?api=/ to the URL'}
@@ -417,7 +428,7 @@ function loop() {
       (state.lastError ? `\nerr     ${state.lastError}` : '');
   }
 
-  const gatesOpen = distance.ok && light.ok && pose.ok && !cooling && !state.capturing;
+  const gatesOpen = positionOk && !cooling && !state.capturing;
   if (!gatesOpen) {
     state.tracker.reset();
   } else if (state.tracker.shouldSample(now)) {
