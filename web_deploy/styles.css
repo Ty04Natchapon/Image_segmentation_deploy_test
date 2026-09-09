@@ -361,3 +361,38 @@ a.ghost {
 /* The gate pills sit where the shutter lands, so lift them clear. */
 body.manual .gates { bottom: 152px; }
 body.manual .errbar { bottom: 196px; }
+
+/* --- pre-flight checklist ------------------------------------------------
+   Shown before the camera starts, because by the time the occlusion gate
+   fires the user has already begun and is being told off rather than
+   prepared. Left-aligned inside a centred card: a list of instructions is
+   read line by line, and centring makes that harder. */
+
+.prep {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  text-align: left;
+}
+.prep li {
+  position: relative;
+  padding-left: 20px;
+  margin: 6px 0;
+  font-size: 13px;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.prep li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: .52em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.prep b { color: var(--text); font-weight: 600; }
