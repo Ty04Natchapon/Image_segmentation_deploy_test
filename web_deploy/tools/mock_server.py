@@ -59,6 +59,36 @@ seen_capture_ids = set()
 
 SAFE = re.compile(r"[^A-Za-z0-9._-]")
 
+
+def compare_modes(rows):
+    """Auto shutter versus manual, on sharpness — the point of offering both.
+
+    Median rather than mean: a single badly shaken frame would drag a mean
+    around and tell you nothing about the typical shot.
+    """
+    buckets = {}
+    for r in rows:
+        try:
+            sharp = float(r.get("sharpness") or 0)
+        except (TypeError, ValueError):
+            continue
+        if sharp > 0:
+            buckets.setdefault(r.get("mode", "auto"), []).append(sharp)
+
+    if not buckets:
+        return "No sharpness data yet."
+
+    parts = []
+    for mode in sorted(buckets):
+        vals = sorted(buckets[mode])
+        mid = vals[len(vals) // 2] if len(vals) % 2 else (
+            (vals[len(vals) // 2 - 1] + vals[len(vals) // 2]) / 2)
+        parts.append(f"{mode}: {len(vals)} shots, median sharpness {mid:.0f}")
+    verdict = ""
+    if len(buckets) > 1:
+        verdict = "  (higher is sharper)"
+    return " · ".join(parts) + verdict
+
 # --- the /__received inspection page ---------------------------------------
 # string.Template rather than str.format, because the CSS below is full of
 # braces and escaping every one of them would make this unreadable.
@@ -90,12 +120,14 @@ PAGE_HTML = Template("""<!doctype html>
   .meta .row span:last-child { color:#93a1b1; font-variant-numeric:tabular-nums; }
   .region { font-weight:650; margin-bottom:6px; color:#3ddc84; }
   .empty { padding:60px 20px; text-align:center; color:#93a1b1; }
+  .compare { margin-top:6px; color:#3ddc84; }
   code { background:#1e252e; padding:1px 5px; border-radius:4px; font-size:12px; }
 </style>
 </head><body>
 <header>
   <h1><span class="live"></span>$count capture(s) received</h1>
   <div class="sub">Written to $out &middot; refreshing automatically</div>
+  <div class="sub compare">$compare</div>
 </header>
 <main>$cards</main>
 <script>
@@ -122,6 +154,8 @@ CARD_HTML = Template("""
     <div class="region">$region</div>
     <div class="row"><span>skin px</span><span>$skin</span></div>
     <div class="row"><span>size</span><span>$dims</span></div>
+    <div class="row"><span>sharpness</span><span>$sharp</span></div>
+    <div class="row"><span>shutter</span><span>$mode</span></div>
     <div class="row"><span>ratio / brightness</span><span>$ratio / $bright</span></div>
     <div class="row"><span>fill light</span><span>$light</span></div>
     <div class="row"><span>received</span><span>$when</span></div>
@@ -269,6 +303,8 @@ class Handler(SimpleHTTPRequestHandler):
                 ratio=escape(str(r.get("ratio", "?"))),
                 bright=escape(str(r.get("brightness", "?"))),
                 light="on" if r.get("fill_light") == "true" else "off",
+                sharp=escape(str(r.get("sharpness", "?"))),
+                mode=escape(r.get("mode", "auto")),
                 cid=escape((r.get("capture_id") or "")[:8]),
                 session=escape((r.get("session_id") or "")[:8]),
             ))
@@ -276,6 +312,7 @@ class Handler(SimpleHTTPRequestHandler):
         body = PAGE_HTML.substitute(
             count=len(rows),
             out=escape(os.path.abspath(self.out_dir)),
+            compare=escape(compare_modes(rows)),
             cards="".join(cards) or EMPTY_HTML,
         ).encode("utf-8")
 

@@ -19,6 +19,7 @@
   <header class="bar">
     <h1>Skin&nbsp;Capture</h1>
     <div class="bar-actions">
+      <button id="modeBtn" class="ghost" type="button" title="Auto capture or manual shutter">Auto</button>
       <button id="syncBtn" class="ghost" type="button" title="Send captures to the analysis server" hidden>Send</button>
       <button id="lightBtn" class="ghost" type="button" title="Screen fill light" hidden>Fill light</button>
       <button id="flipBtn" class="ghost" type="button" title="Switch camera" hidden>Flip</button>
@@ -41,6 +42,7 @@
     </ul>
 
     <div id="hold" class="hold" hidden><i id="holdBar" class="hold-bar"></i></div>
+    <button id="shutterBtn" class="shutter" type="button" hidden aria-label="Take the shot"></button>
     <div id="flash" class="flash" hidden>Captured</div>
     <button id="errbar" class="errbar" type="button" hidden></button>
     <pre id="debug" class="debug" hidden></pre>

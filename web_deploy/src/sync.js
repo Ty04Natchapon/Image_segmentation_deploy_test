@@ -58,6 +58,9 @@ export function buildFormData(rec) {
   // Variance of the Laplacian over the face box. Device-relative, so use it
   // to rank captures of the same person on the same phone, not as an absolute.
   body.append('sharpness', String(rec.sharpness || 0));
+  // 'auto' (peak detector) or 'manual' (user shutter). Kept so the two can be
+  // compared on collected data instead of on impressions.
+  body.append('mode', rec.mode || 'auto');
   body.append('width', String(rec.width));
   body.append('height', String(rec.height));
   body.append('ratio', rec.ratio.toFixed(4));

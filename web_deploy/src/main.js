@@ -35,6 +35,7 @@ const els = {
   lightBtn: $('lightBtn'), fillLight: $('fillLight'), syncBtn: $('syncBtn'),
   hold: $('hold'), holdBar: $('holdBar'), serverLink: $('serverLink'),
   errbar: $('errbar'), stepBar: $('stepBar'), stepLabel: $('stepLabel'),
+  modeBtn: $('modeBtn'), shutterBtn: $('shutterBtn'),
   restartBtn: $('restartBtn'),
   gallery: $('gallery'), galleryGrid: $('galleryGrid'), galleryEmpty: $('galleryEmpty'),
   closeGalleryBtn: $('closeGalleryBtn'), clearBtn: $('clearBtn'), progress: $('progress'),
@@ -56,6 +57,8 @@ const state = {
   grayBuf: null,
   lastSharpness: 0,
   sharpnessAt: 0,
+  latest: null,
+  mode: 'auto',      // 'auto' peak detector, or 'manual' shutter
   skinBuffer: null,
   skinValid: false,
   ring: [],            // full-resolution snapshots for the peak window
@@ -494,7 +497,24 @@ function loop() {
       (state.lastError ? `\nerr     ${state.lastError}` : '');
   }
 
-  const gatesOpen = !done && positionOk && !cooling && !state.capturing;
+  // Everything the manual shutter needs, kept current so pressing the button
+  // captures the frame you were looking at rather than re-deriving it late.
+  //
+  // `framingOk` rather than `positionOk`: a manual shot still has to be framed,
+  // lit, posed and unobstructed, but sharpness must NOT block it. Refusing a
+  // blurred manual shot would hide the very effect this mode exists to
+  // measure — whether a human-timed shutter beats the peak detector.
+  state.latest = {
+    group, ratio, faceCapturePx,
+    brightness: light.brightness,
+    sharpness: state.lastSharpness,
+    landmarks,
+    ready: !done && framingOk && !cooling && !state.capturing,
+  };
+  els.shutterBtn.disabled = !state.latest.ready;
+
+  const gatesOpen = state.mode === 'auto'
+    && !done && positionOk && !cooling && !state.capturing;
   if (!gatesOpen) {
     state.tracker.reset();
   } else if (state.tracker.shouldSample(now)) {
@@ -506,6 +526,7 @@ function loop() {
 
     const winner = state.tracker.push(now, ratio, group, {
       sharpness: state.lastSharpness,
+      mode: 'auto',
       frame,
       group,
       ratio,
@@ -540,6 +561,62 @@ function showError(message, detail = '') {
 function clearError() {
   state.lastError = '';
   els.errbar.hidden = true;
+}
+
+// --- shutter mode ----------------------------------------------------------
+
+const MODE_KEY = 'skin-capture.mode';
+
+function setMode(mode) {
+  state.mode = mode === 'manual' ? 'manual' : 'auto';
+  try {
+    localStorage.setItem(MODE_KEY, state.mode);
+  } catch { /* private tab; the choice still applies to this session */ }
+
+  const manual = state.mode === 'manual';
+  els.modeBtn.textContent = manual ? 'Manual' : 'Auto';
+  els.modeBtn.classList.toggle('on', manual);
+  els.shutterBtn.hidden = !manual;
+  document.body.classList.toggle('manual', manual);
+  state.tracker.reset();
+}
+
+function loadMode() {
+  try {
+    setMode(localStorage.getItem(MODE_KEY) || 'auto');
+  } catch {
+    setMode('auto');
+  }
+}
+
+/**
+ * Take the shot the user asked for, now.
+ *
+ * Note what this deliberately does not check: sharpness. The whole point of
+ * offering a manual shutter is to find out whether a person times a steadier
+ * frame than the peak detector does, and silently refusing the blurred ones
+ * would answer that question by hiding the evidence. The sharpness is measured
+ * and recorded either way, so the comparison can be made from the data.
+ */
+function manualShutter() {
+  const latest = state.latest;
+  if (!latest || !latest.ready || state.capturing || !state.video) return;
+
+  const now = performance.now();
+  const frame = state.ring[state.ringIndex];
+  state.ringIndex = (state.ringIndex + 1) % state.ring.length;
+  drawMirrored(frame.getContext('2d'), state.video, frame.width, frame.height);
+
+  capture({
+    frame,
+    mode: 'manual',
+    group: latest.group,
+    ratio: latest.ratio,
+    brightness: latest.brightness,
+    faceCapturePx: latest.faceCapturePx,
+    sharpness: latest.sharpness,
+    landmarks: latest.landmarks.map((p) => ({ x: p.x, y: p.y })),
+  }, now);
 }
 
 // --- capture ---------------------------------------------------------------
@@ -626,6 +703,9 @@ async function capture(payload, now) {
       // to re-run landmarks to find out how big the face was.
       facePx: Math.round(payload.faceCapturePx || 0),
       sharpness: Math.round(payload.sharpness || 0),
+      // Which shutter took it, so auto and manual can be compared on real data
+      // rather than on impressions.
+      mode: payload.mode || 'auto',
       width: w,
       height: h,
       // What the camera was doing when this was taken. There is no raw path on
@@ -772,7 +852,8 @@ async function openGallery() {
       <div class="thumb"><img src="${url}" alt="${groupLabel(rec.group)} capture">${uploadBadge(rec)}</div>
       <div class="meta">
         <b>${groupLabel(rec.group)}</b>
-        <span>${rec.skinPx.toLocaleString()} skin px</span>
+        <span>${rec.skinPx.toLocaleString()} skin px${
+          rec.sharpness ? ` · sharp ${rec.sharpness}` : ''} · ${rec.mode || 'auto'}</span>
         <span>${new Date(rec.ts).toLocaleString()}</span>
         <span>${uploadStatus(rec)}</span>
       </div>
@@ -889,6 +970,16 @@ els.restartBtn.addEventListener('click', () => {
   renderProgress();
 });
 
+els.modeBtn.addEventListener('click', () => {
+  setMode(state.mode === 'auto' ? 'manual' : 'auto');
+});
+// pointerdown, not click: the shutter fires as the finger lands rather than as
+// it lifts, so the frame captured is the one before the tap has shaken the
+// phone. It cannot remove the shake, but it does stop waiting for it.
+els.shutterBtn.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  manualShutter();
+});
 els.errbar.addEventListener('click', clearError);
 els.syncBtn.addEventListener('click', runSync);
 els.galleryBtn.addEventListener('click', openGallery);
@@ -949,6 +1040,7 @@ const ready = CFG.detectUploadEndpoint().then((endpoint) => {
   return refreshSyncBadge().catch(() => {});
 });
 
+loadMode();
 renderProgress();
 // If IndexedDB is unavailable — a private tab on iOS is the usual reason —
 // every capture would appear to succeed and silently vanish. Better to say so

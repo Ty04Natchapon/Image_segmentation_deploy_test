@@ -637,3 +637,32 @@ measured whenever the *framing* gates pass, on its own clock, deliberately not
 inside the sampling branch. Measuring only while sampling would deadlock — a
 blurred frame would close the very gate that produces the next measurement, and
 nothing would reopen it.
+
+### Auto or manual shutter
+
+The header toggle switches between the two, and the choice is remembered. In
+manual mode a shutter button appears, enabled only once the framing gates are
+green — so a manual shot is still correctly framed, lit, posed and
+unobstructed. What changes is only *who picks the moment*, which is the one
+variable worth comparing.
+
+Two deliberate details:
+
+- **The shutter fires on `pointerdown`, not on click.** The frame is taken as
+  the finger lands rather than as it lifts. That does not remove tap shake, but
+  it stops waiting for it.
+- **Sharpness does not block a manual shot.** Refusing the blurred ones would
+  answer the question by hiding the evidence. It is still measured and
+  recorded.
+
+Every capture stores which shutter took it, so the two can be compared on data.
+The received page prints the verdict at the top:
+
+```
+auto: 12 shots, median sharpness 90 · manual: 9 shots, median sharpness 58  (higher is sharper)
+```
+
+Median rather than mean: one badly shaken frame would drag a mean around and
+tell you nothing about the typical shot. Take a dozen or so each way before
+reading anything into it — and note the comparison is only fair if the lighting
+was similar, since sharpness falls with exposure time.

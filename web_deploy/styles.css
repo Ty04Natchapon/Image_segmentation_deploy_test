@@ -331,3 +331,33 @@ a.ghost {
 .chip.current .name { color: var(--accent); }
 .chip.done { border-color: var(--ok); }
 .chip.done .val { color: var(--ok); }
+
+/* --- manual shutter ------------------------------------------------------
+   Offered so auto and manual can be compared on real data. Placed low and
+   centred, the usual camera position, and large: a small target invites a
+   harder, shakier press. */
+
+.shutter {
+  position: absolute;
+  left: 50%;
+  bottom: 74px;
+  transform: translateX(-50%);
+  z-index: 4;
+  width: 68px;
+  height: 68px;
+  padding: 0;
+  border-radius: 50%;
+  border: 4px solid rgba(255, 255, 255, .9);
+  background: rgba(255, 255, 255, .28);
+  backdrop-filter: blur(6px);
+  transition: transform .08s ease-out, background .12s;
+}
+.shutter:active:not(:disabled) { transform: translateX(-50%) scale(.92); }
+.shutter:disabled { opacity: .35; border-color: rgba(255, 255, 255, .5); }
+.shutter:not(:disabled) { background: rgba(61, 220, 132, .35); border-color: var(--ok); }
+
+.ghost.on { border-color: var(--accent); color: var(--accent); }
+
+/* The gate pills sit where the shutter lands, so lift them clear. */
+body.manual .gates { bottom: 152px; }
+body.manual .errbar { bottom: 196px; }
