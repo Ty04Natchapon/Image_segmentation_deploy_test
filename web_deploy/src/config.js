@@ -84,6 +84,23 @@ export const MIN_FOREHEAD_COVERAGE = 0.6;
 // Height of that band above the brow line, as a fraction of face height.
 export const FOREHEAD_BAND_FRAC = 0.18;
 
+// --- Sharpness -------------------------------------------------------------
+// Auto-capture fires at the peak of the head turn, where angular velocity is
+// near zero — but nothing was watching hand shake or focus, so a blurred frame
+// passed every gate. A manual shutter is not the fix: tapping the screen
+// shakes the phone at the exact moment of capture, which is why phone cameras
+// have timers and volume-button shutters.
+//
+// Instead the frame is measured. Two uses, and only one needs a threshold:
+//   - pick the sharpest of the candidates (no threshold, always an improvement)
+//   - refuse a shot that is blurred even at its best (needs this floor)
+//
+// [RETUNE] Variance of the Laplacian scales with contrast and resolution, so
+// this number does not transfer between devices. Deliberately permissive: it
+// should catch obvious smearing, not police normal shots. Watch the live
+// figure with ?debug=1 and raise it until bad frames are refused.
+export const MIN_SHARPNESS = 15;
+
 // --- Lighting thresholds ---------------------------------------------------
 export const BRIGHTNESS_MIN = 70;
 export const BRIGHTNESS_MAX = 205;

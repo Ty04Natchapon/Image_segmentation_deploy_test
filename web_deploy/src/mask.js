@@ -343,3 +343,35 @@ export function maskToBinaryImageData(mask, w, h) {
   }
   return img;
 }
+
+/**
+ * Variance of the Laplacian — the standard cheap focus measure.
+ *
+ * A sharp image has strong second derivatives at edges, so their variance is
+ * high; blur flattens them and the variance collapses. It costs one pass over
+ * the pixels and needs no model.
+ *
+ * Read it as a relative number, not an absolute one: it scales with contrast
+ * and resolution, so a threshold tuned on one device and framing does not
+ * transfer. Comparing candidate frames from the same moment is what it is
+ * genuinely reliable for.
+ */
+export function laplacianVariance(gray, w, h) {
+  if (w < 3 || h < 3) return 0;
+  let sum = 0;
+  let sumSq = 0;
+  let n = 0;
+  for (let y = 1; y < h - 1; y++) {
+    const row = y * w;
+    for (let x = 1; x < w - 1; x++) {
+      const i = row + x;
+      const lap = 4 * gray[i] - gray[i - 1] - gray[i + 1] - gray[i - w] - gray[i + w];
+      sum += lap;
+      sumSq += lap * lap;
+      n++;
+    }
+  }
+  if (!n) return 0;
+  const mean = sum / n;
+  return Math.max(0, sumSq / n - mean * mean);
+}

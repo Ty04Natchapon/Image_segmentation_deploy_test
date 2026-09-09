@@ -260,6 +260,7 @@ One `multipart/form-data` POST per capture, to whatever URL is configured as
 | `captured_at` | string | ISO 8601 UTC |
 | `skin_px` | integer | Pixels inside the region mask |
 | `face_px` | integer | Face width in pixels. **Divide by 140 for px/mm** — the resolution filter |
+| `sharpness` | integer | Variance of the Laplacian over the face box. Device-relative: rank with it, do not threshold across phones |
 | `width`, `height` | integer | Dimensions of **both** files |
 | `ratio` | float | Pose symmetry: 1.0 is head-on |
 | `brightness` | float | Mean luma of the face box, 0–255 |
@@ -591,3 +592,48 @@ Do it twice: once framed the way you want the dataset to look, and once
 deliberately obstructed. Set each threshold between the two. Too strict and
 users cannot take a shot at all; too loose and it never fires — and the second
 failure is the quieter one.
+
+## Blurry captures
+
+The instinctive fix is a manual shutter, and it makes things worse: tapping the
+screen shakes the phone at the exact moment of capture. That is why phone
+cameras have timers and volume-button shutters rather than relying on a screen
+tap. Auto-capture is the right mechanism — it just needs to know what a blurred
+frame looks like.
+
+Auto-capture already fires at the peak of the head turn, where angular velocity
+is near zero. What nothing was watching is hand shake and focus, so a smeared
+frame passed every gate.
+
+Sharpness is now measured as the variance of the Laplacian over the face box —
+the face rather than the skin region, because skin is nearly textureless by
+nature and its Laplacian is mostly sensor noise, while eyes and brows are what
+a camera focuses on and what blur destroys first. It is used twice:
+
+1. **To choose.** The peak decides *when* to fire; sharpness decides *which* of
+   the three candidate frames to keep. They are ~120ms apart and at essentially
+   the same pose, so there is no reason to accept a shaken middle frame when a
+   neighbour is sharp. This needs no threshold and cannot make things worse.
+2. **To refuse.** A window containing a frame below `MIN_SHARPNESS` is dropped
+   and the hint reads "Hold steadier — too blurry".
+
+`sharpness` travels with each capture, so the analysis side can rank or filter.
+
+### Tuning it
+
+Variance of the Laplacian scales with contrast and resolution, so the default
+(15) is deliberately permissive and **will not transfer between devices**. Watch
+the live figure with `?debug=1`:
+
+```
+sharp   87 (min 15)
+```
+
+Read it while holding steady, then again while deliberately shaking, and set
+the threshold between the two. If it is too high nobody can take a shot at all.
+
+One implementation note worth keeping if this is ever refactored: sharpness is
+measured whenever the *framing* gates pass, on its own clock, deliberately not
+inside the sampling branch. Measuring only while sampling would deadlock — a
+blurred frame would close the very gate that produces the next measurement, and
+nothing would reopen it.

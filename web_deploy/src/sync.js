@@ -55,6 +55,9 @@ export function buildFormData(rec) {
   // Face width in pixels. Divide by 140 for px/mm — the figure that decides
   // whether a lesion is resolvable, and the cheapest quality filter you have.
   body.append('face_px', String(rec.facePx || 0));
+  // Variance of the Laplacian over the face box. Device-relative, so use it
+  // to rank captures of the same person on the same phone, not as an absolute.
+  body.append('sharpness', String(rec.sharpness || 0));
   body.append('width', String(rec.width));
   body.append('height', String(rec.height));
   body.append('ratio', rec.ratio.toFixed(4));

@@ -14,6 +14,7 @@ import {
   BRIGHTNESS_MAX,
   MIN_SKIN_COVERAGE,
   MIN_FOREHEAD_COVERAGE,
+  MIN_SHARPNESS,
   PEAK_SAMPLE_INTERVAL_MS,
   PEAK_WINDOW,
   GROUPS,
@@ -131,6 +132,20 @@ export function checkOcclusion(group, coverage, forehead) {
   return { ok: true, msg: 'Skin clear', coverage };
 }
 
+/**
+ * Is the frame sharp enough to be worth keeping?
+ *
+ * Zero means "not measured" — the face box was too small to sample — and an
+ * unmeasured frame must not be refused, only an actually blurred one.
+ */
+export function checkSharpness(sharpness) {
+  if (!sharpness) return { ok: true, msg: 'Sharpness ?', sharpness: 0 };
+  if (sharpness < MIN_SHARPNESS) {
+    return { ok: false, msg: 'Hold steadier — too blurry', sharpness };
+  }
+  return { ok: true, msg: 'Sharp', sharpness };
+}
+
 /** Step label for the UI: "Step 2 of 3 — Left cheek". */
 export function stepLabel(index) {
   if (index >= SEQUENCE.length) return 'All three captured';
@@ -181,12 +196,33 @@ export class PeakTracker {
     if (this.samples.length > PEAK_WINDOW) this.samples.shift();
     if (this.samples.length < PEAK_WINDOW) return null;
 
+    // A blurred sample cannot win, and nor should a window containing one: the
+    // three are only ~120ms apart, so shake spoiling one is probably spoiling
+    // its neighbours. Note the clock has already advanced above, so rejecting
+    // here does not turn into a re-measure on every frame.
+    if (payload.sharpness && payload.sharpness < MIN_SHARPNESS) {
+      this.reset();
+      return null;
+    }
+
     const [a, b, c] = this.samples;
     if (a.group !== b.group || b.group !== c.group) return null;
     if (!isPeak(a.ratio, b.ratio, c.ratio, b.group)) return null;
 
+    // The peak decides WHEN to fire; sharpness decides WHICH frame to keep.
+    //
+    // Python always saved the middle sample, on the reasoning that it is the
+    // moment the head stopped turning. That is the right instant, but all
+    // three samples span about 120ms and sit at essentially the same pose — so
+    // there is no reason to accept a hand-shake blur in the middle one when a
+    // neighbour is sharp. Free quality, and it needs no threshold.
+    const best = this.samples.reduce(
+      (winner, s) => ((s.payload.sharpness || 0) > (winner.payload.sharpness || 0) ? s : winner),
+      b,
+    );
+
     this.reset();
-    return b.payload;
+    return best.payload;
   }
 }
 

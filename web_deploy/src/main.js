@@ -18,6 +18,7 @@ import * as M from './mask.js';
 import {
   symmetryRatio, classifyRatio, checkDistance, checkLighting, checkOcclusion,
   checkTargetPose, targetInstruction, stepLabel, SEQUENCE, PeakTracker, groupLabel,
+  checkSharpness,
 } from './pose.js';
 import { loadVision, detectLandmarks, writeSkinMask } from './vision.js';
 import * as store from './storage.js';
@@ -52,6 +53,9 @@ const state = {
   proc: null,          // { canvas, ctx, w, h }
   overlay: null,       // { canvas, ctx }
   lumaCanvas: null,
+  grayBuf: null,
+  lastSharpness: 0,
+  sharpnessAt: 0,
   skinBuffer: null,
   skinValid: false,
   ring: [],            // full-resolution snapshots for the peak window
@@ -122,6 +126,34 @@ function meanLuma(source, box) {
   ctx.clearRect(0, 0, c.width, c.height);
   ctx.drawImage(source, box.x0, box.y0, w, h, 0, 0, c.width, c.height);
   return ctx.getImageData(0, 0, c.width, c.height).data;
+}
+
+/**
+ * Focus/shake measure over the face box, at working resolution.
+ *
+ * Measured on the whole face rather than the skin region on purpose: skin is
+ * nearly textureless by nature, so its Laplacian is dominated by noise. Eyes
+ * and brows are what a camera actually focuses on, and what blur destroys
+ * first.
+ *
+ * Only called when a peak sample is taken — about 16 times a second, not every
+ * frame — because getImageData forces a pipeline stall.
+ */
+function measureSharpness(box) {
+  const x0 = Math.max(0, Math.round(box.x0));
+  const y0 = Math.max(0, Math.round(box.y0));
+  const w = Math.min(state.proc.w - x0, Math.round(box.x1) - x0);
+  const h = Math.min(state.proc.h - y0, Math.round(box.y1) - y0);
+  if (w < 16 || h < 16) return 0;      // too small to judge; 0 means unmeasured
+
+  const px = state.proc.ctx.getImageData(x0, y0, w, h).data;
+  const n = w * h;
+  if (!state.grayBuf || state.grayBuf.length < n) state.grayBuf = new Uint8Array(n);
+  const gray = state.grayBuf;
+  for (let p = 0, i = 0; p < n; p++, i += 4) {
+    gray[p] = (0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]) | 0;
+  }
+  return M.laplacianVariance(gray, w, h);
 }
 
 // --- camera ----------------------------------------------------------------
@@ -384,7 +416,21 @@ function loop() {
   // Finishing the sequence is not a failure, so the outline must not go red
   // once all three are done — there is nothing left for the user to correct.
   const done = !target;
-  const positionOk = done || (distance.ok && light.ok && pose.ok && clear.ok);
+  const framingOk = distance.ok && light.ok && pose.ok && clear.ok;
+
+  // Measured whenever the framing is right, on its own clock — NOT inside the
+  // sampling branch. Gating measurement on sharpness would deadlock: one
+  // blurred frame would close the gate that produces the next measurement, and
+  // nothing would ever re-open it.
+  if (framingOk && now - (state.sharpnessAt || 0) >= CFG.PEAK_SAMPLE_INTERVAL_MS) {
+    state.lastSharpness = measureSharpness(bounds);
+    state.sharpnessAt = now;
+  } else if (!framingOk) {
+    state.lastSharpness = 0;          // stale figures must not survive a reframe
+  }
+  const sharp = checkSharpness(state.lastSharpness);
+
+  const positionOk = done || (framingOk && sharp.ok);
 
   state.overlay.ctx.putImageData(
     M.maskToImageData(mask, pw, ph,
@@ -407,6 +453,7 @@ function loop() {
   if (!distance.ok) hint = distance.msg;
   else if (!light.ok) hint = light.msg;
   else if (!clear.ok) hint = clear.msg;
+  else if (!sharp.ok) hint = sharp.msg;
   else if (!pose.ok) hint = pose.msg;
   // "What next" belongs in the cooldown, not while you are being asked to hold
   // — telling someone to turn their head under a green outline and a filling
@@ -433,6 +480,8 @@ function loop() {
       `ratio   ${ratio.toFixed(3)}  ${group}\n` +
       `face    ${distance.frac.toFixed(3)} of short edge  ${(faceCapturePx / CFG.FACE_WIDTH_MM).toFixed(1)} px/mm\n` +
       `bright  ${light.brightness.toFixed(0)}\n` +
+      `sharp   ${state.lastSharpness.toFixed(0)} (min ${CFG.MIN_SHARPNESS})
+` +
       `cover   ${(stats.coverage * 100).toFixed(0)}% forehead ${(foreheadCov * 100).toFixed(0)}%
 ` +
       `skin px ${skinPx.toLocaleString()}\n` +
@@ -456,6 +505,7 @@ function loop() {
     drawMirrored(frame.getContext('2d'), video, frame.width, frame.height);
 
     const winner = state.tracker.push(now, ratio, group, {
+      sharpness: state.lastSharpness,
       frame,
       group,
       ratio,
@@ -575,6 +625,7 @@ async function capture(payload, now) {
       // Lets the analysis side reject under-resolved captures without having
       // to re-run landmarks to find out how big the face was.
       facePx: Math.round(payload.faceCapturePx || 0),
+      sharpness: Math.round(payload.sharpness || 0),
       width: w,
       height: h,
       // What the camera was doing when this was taken. There is no raw path on
