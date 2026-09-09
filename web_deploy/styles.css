@@ -396,3 +396,42 @@ body.manual .errbar { bottom: 196px; }
   background: var(--accent);
 }
 .prep b { color: var(--text); font-weight: 600; }
+
+/* --- the glasses warning -------------------------------------------------
+   Given the full width and an icon rather than a bullet. Glasses are the one
+   preparation step that both defeats the measurement outright — the frames sit
+   across the cheek region — and is easy to forget you are wearing, since you
+   are looking through them while you read this. Amber, not red: this is an
+   instruction, not an error. */
+
+.prep-alert {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  margin: 18px 0;
+  padding: 18px 16px;
+  border: 1px solid var(--warn);
+  border-radius: 14px;
+  background: rgba(52, 36, 6, .55);
+  text-align: center;
+}
+.prep-icon {
+  width: 108px;
+  max-width: 60%;
+  height: auto;
+  color: var(--warn);
+}
+.prep-alert strong {
+  font-size: 21px;
+  line-height: 1.25;
+  color: var(--warn);
+  text-wrap: balance;
+}
+.prep-alert span { font-size: 13px; color: var(--muted); }
+
+/* Short viewports: the icon is the first thing to give up its height. */
+@media (max-height: 680px) {
+  .prep-alert { margin: 12px 0; padding: 12px; }
+  .prep-icon { width: 76px; }
+  .prep-alert strong { font-size: 18px; }
+}

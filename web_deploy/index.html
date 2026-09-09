@@ -53,8 +53,35 @@
         <p>Look straight ahead, then turn to show each cheek. The shot is taken
            automatically the moment your framing, lighting and pose are all good.</p>
 
+        <!-- Glasses are pulled out of the list below and given the whole
+             width. They are the one thing that both blocks the measurement and
+             is easy to forget you are wearing, and a bullet among four reads
+             as optional. -->
+        <div class="prep-alert">
+          <svg class="prep-icon" viewBox="0 0 96 48" aria-hidden="true">
+            <defs>
+              <!-- Cuts a real gap out of the frames rather than drawing the
+                   slash in the card colour, so it survives a theme change. -->
+              <mask id="glassesCut">
+                <rect width="96" height="48" fill="#fff"/>
+                <path d="M22 44 74 5" stroke="#000" stroke-width="10" stroke-linecap="round"/>
+              </mask>
+            </defs>
+            <g fill="none" stroke="currentColor" stroke-width="3.5"
+               stroke-linecap="round" stroke-linejoin="round" mask="url(#glassesCut)">
+              <circle cx="25" cy="26" r="13"/>
+              <circle cx="69" cy="26" r="13"/>
+              <path d="M38 24Q47 21 56 24"/>
+              <path d="M12 25 4 17M82 25l8-8"/>
+            </g>
+            <path d="M22 44 74 5" fill="none" stroke="currentColor"
+                  stroke-width="4" stroke-linecap="round"/>
+          </svg>
+          <strong>Take your glasses off</strong>
+          <span>The frames sit across the cheek being measured</span>
+        </div>
+
         <ul class="prep">
-          <li><b>Take your glasses off</b> — frames cover the cheek being measured</li>
           <li><b>Tie your hair back</b>, clear of your forehead</li>
           <li><b>No makeup</b> on your face — foundation hides exactly what this measures</li>
           <li><b>Face a window or lamp</b>, not with one behind you</li>
